@@ -3,15 +3,20 @@ import {
   LayoutDashboard, ClipboardPlus, ClipboardList, Users, BarChart3, CalendarDays, Search,
   CheckCircle2, AlertTriangle, Building2, Route, Fuel, Package2, MapPin, UserRound,
   ChevronRight, Download, X, Truck, Clock3, CircleDot, ChevronLeft, Check, FileText,
-  Radio, RefreshCw, Filter, CarFront,
+  Radio, RefreshCw, Filter, CarFront, Factory, Droplets, Caravan, ClipboardCheck,
 } from "lucide-react";
-import { EMPRESA, LOGO_GASLARA, descargar, csv, num } from "./datos.jsx";
+import { EMPRESA, LOGO_GASLARA, descargar, csv, num, kgALitros, kgDeSolicitud } from "./datos.jsx";
 import {
   PLANIFICACION_1408, UNIDADES_DISTRIBUCION, OPERADORES_DISTRIBUCION, unidadDistribucion, operadorDistribucion, operadoresParaUnidad,
   cilindrosFila, kgFila, litrosInventarioFila, beneficiariosDeRuta, pedidosDeRutas, historialDistribucionPersona, REPORTE_1308,
+  ayudanteDistribucion, disponibilidadUnidad, AYUDANTES_DISTRIBUCION,
 } from "./distribucionSeed.js";
 import Usuario360Modal from "./Usuario360.jsx";
-import { AgendaDistribucion, PreparacionCarga, FlotaDistribucion, ReplanificarDistribucion, IncidenciasDistribucion } from "./DistribucionExtra.jsx";
+import { KgL, NotaFactor, UnidadesStyles, kgYL } from "./Unidades.jsx";
+import EjecucionAD from "./DistribucionEjecucion.jsx";
+import { cuadreAD, ListaPersonasAD, CuadreChips, PersonasStyles } from "./DistribucionPersonas.jsx";
+import { PreparacionCarga, FlotaDistribucion, Reasignar } from "./DistribucionExtra.jsx";
+import { MovimientoPlanta, GranelDistribucion, PlantaMovil } from "./DistribucionPlanta.jsx";
 
 const fmt = (n, d = 0) => Number(n || 0).toLocaleString("es-VE", { minimumFractionDigits:d, maximumFractionDigits:d });
 const pct = (a,b) => b ? `${fmt(a/b*100,1)}%` : "0,0%";
@@ -24,7 +29,14 @@ const estados = {
 const tipoFlota = { FUERZA_PROPIA:"Fuerza propia", EPSDC:"EPSDC", POR_ASIGNAR:"Por asignar" };
 const usuariosRuta = (r) => (r.beneficiariosSnapshot || beneficiariosDeRuta(r)).filter((p) => !(r.customAssignedPedidoIds || []).includes(p.id));
 
-export default function Distribucion({ rutasDistribucion = PLANIFICACION_1408, actualizarRutaDistribucion = () => {}, crearRutaDistribucionPersonalizada = () => {} }) {
+export default function Distribucion({
+  rutasDistribucion = PLANIFICACION_1408,
+  actualizarRutaDistribucion = () => {},
+  crearRutaDistribucionPersonalizada = () => {},
+  movPlanta = [], existencias = {}, disponibles = {}, solicitudes = [], parqueEnvases = [],
+  cerrarAD = () => ({ ok: false }),
+  crearMovimientoPlanta = () => {}, crearVentaGenerica = () => {},
+}) {
   const [vista,setVista]=useState("inicio");
   const [wizard,setWizard]=useState(null);
   const [customWizard,setCustomWizard]=useState(null);
@@ -45,6 +57,9 @@ export default function Distribucion({ rutasDistribucion = PLANIFICACION_1408, a
 
   const pedidos=useMemo(()=>pedidosDeRutas(rutasDistribucion),[rutasDistribucion]);
   const pedidosSinAD=pedidos.filter(p=>!p.ad).length;
+  // AD que ya salieron y todavia no tienen cierre firmado: es lo que le queda por hacer al gerente.
+  const porCerrar=rutasDistribucion.filter(r=>r.ad&&String(r.ad)!=="0"&&r.estadoRuta!=="SIN_PLANIFICAR"
+    &&!["ENTREGADA","CERRADA","PARCIAL"].includes(r.estadoRuta)).length;
 
   const filtradas=useMemo(()=>{
     const q=buscar.trim().toLowerCase();
@@ -60,38 +75,40 @@ export default function Distribucion({ rutasDistribucion = PLANIFICACION_1408, a
 
   return <div className="dx">
     <Estilos />
+    <UnidadesStyles />
     <aside className="dx-side">
       <div className="dx-brand"><img src={LOGO_GASLARA}/><div><b>Distribución</b><span>{EMPRESA.nombre}</span></div></div>
       <p>Recibe los pedidos individuales, agrupa los pagados por comunidad y asigna AD, ruta, vehículo y operador.</p>
       <nav>
         <Nav id="inicio" icon={LayoutDashboard} label="Resumen" {...{vista,setVista}}/>
         <Nav id="pedidos" icon={Radio} label="Pedidos en tiempo real" badge={pedidosSinAD} {...{vista,setVista}}/>
-        <Nav id="planificar" icon={ClipboardPlus} label="Planificar AD" badge={resumen.pendientes.length} {...{vista,setVista}}/>
-        <Nav id="ads" icon={ClipboardList} label="AD del día" {...{vista,setVista}}/>
-        <Nav id="agenda" icon={CalendarDays} label="Agenda diaria" {...{vista,setVista}}/>
+        <Nav id="ads" icon={ClipboardList} label="AD del día" badge={resumen.pendientes.length} {...{vista,setVista}}/>
         <Nav id="carga" icon={Package2} label="Preparación y carga" {...{vista,setVista}}/>
-        <Nav id="replanificar" icon={RefreshCw} label="Replanificar AD" {...{vista,setVista}}/>
+        <Nav id="ejecucion" icon={ClipboardCheck} label="Ejecución y cierre" badge={porCerrar} {...{vista,setVista}}/>
         <Nav id="flota" icon={CarFront} label="Flota y operadores" {...{vista,setVista}}/>
-        <Nav id="incidencias" icon={AlertTriangle} label="Incidencias" {...{vista,setVista}}/>
+        <Nav id="planta" icon={Factory} label="Movimiento de planta" {...{vista,setVista}}/>
+        <Nav id="granel" icon={Droplets} label="Granel" {...{vista,setVista}}/>
+        <Nav id="movil" icon={Caravan} label="Planta móvil" {...{vista,setVista}}/>
         <Nav id="comunas" icon={Users} label="Comunas y usuarios" {...{vista,setVista}}/>
-        <Nav id="reportes" icon={BarChart3} label="Reportes" {...{vista,setVista}}/>
       </nav>
-      <div className="dx-rule"><small>Flujo</small><b>Pedidos → AD → Ruta → Conductor</b><span>El conductor recibe la ruta ya definida por Distribución.</span></div>
+      <div className="dx-rule"><small>Flujo</small><b>Pedidos → AD → Ruta → Cierre</b><span>El conductor ejecuta la ruta que aquí se define. El cierre lo firma Distribución.</span></div>
     </aside>
 
     <main className="dx-main">
       <header className="dx-head"><div><span>C.D.T. GRAL. JACINTO LARA</span><h1>{titulo(vista)}</h1><p>{subtitulo(vista)}</p></div><div className="dx-date"><CalendarDays size={15}/>14-08-2026</div></header>
-      {vista==="inicio"&&<Inicio {...{resumen,rutas:rutasDistribucion,abrirPlanificador,setVista,setDetalle}}/>}
+      {vista==="inicio"&&<Inicio {...{resumen,rutas:rutasDistribucion,abrirPlanificador,setVista,setDetalle,solicitudes,disponibles,existencias,movPlanta}}/>}
       {vista==="pedidos"&&<Pedidos pedidos={pedidos} rutas={rutasDistribucion} aviso={aviso} onPlanCustom={abrirPlanificadorCustom} onVerUsuario={setUsuario360}/>} 
-      {vista==="planificar"&&<Planificar rutas={filtradas} buscar={buscar} setBuscar={setBuscar} abrirPlanificador={abrirPlanificador}/>} 
-      {vista==="ads"&&<ADs rutas={filtradas} buscar={buscar} setBuscar={setBuscar} setDetalle={setDetalle} abrirPlanificador={abrirPlanificador}/>}
-      {vista==="agenda"&&<AgendaDistribucion rutas={rutasDistribucion}/>}
+      {vista==="ads"&&<ADs rutas={filtradas} solicitudes={solicitudes} buscar={buscar} setBuscar={setBuscar}
+        setDetalle={setDetalle} abrirPlanificador={abrirPlanificador} actualizar={actualizarRutaDistribucion}
+        onVerUsuario={setUsuario360} aviso={aviso}/>}
       {vista==="carga"&&<PreparacionCarga rutas={rutasDistribucion} actualizar={actualizarRutaDistribucion} aviso={aviso}/>}
-      {vista==="replanificar"&&<ReplanificarDistribucion rutas={rutasDistribucion} actualizar={actualizarRutaDistribucion} aviso={aviso}/>}
+      {vista==="ejecucion"&&<EjecucionAD rutas={rutasDistribucion} solicitudes={solicitudes} parqueEnvases={parqueEnvases}
+        actualizar={actualizarRutaDistribucion} cerrarAD={cerrarAD} aviso={aviso}/>}
       {vista==="flota"&&<FlotaDistribucion rutas={rutasDistribucion}/>}
-      {vista==="incidencias"&&<IncidenciasDistribucion rutas={rutasDistribucion} actualizar={actualizarRutaDistribucion} aviso={aviso}/>} 
+      {vista==="planta"&&<MovimientoPlanta movPlanta={movPlanta} existencias={existencias} onRegistrar={crearMovimientoPlanta} aviso={aviso}/>}
+      {vista==="granel"&&<GranelDistribucion aviso={aviso}/>}
+      {vista==="movil"&&<PlantaMovil onVender={crearVentaGenerica} aviso={aviso}/>}
       {vista==="comunas"&&<Comunas rutas={rutasDistribucion} onVerUsuario={setUsuario360}/>} 
-      {vista==="reportes"&&<Reportes rutas={rutasDistribucion} resumen={resumen} aviso={aviso}/>} 
     </main>
 
     {wizard&&<WizardAD ruta={wizard.ruta} rutas={rutasDistribucion} onClose={()=>setWizard(null)} onSave={guardarPlan}/>} 
@@ -104,13 +121,14 @@ export default function Distribucion({ rutasDistribucion = PLANIFICACION_1408, a
 
 function Nav({id,icon:I,label,badge=0,vista,setVista}){return <button className={vista===id?"on":""} onClick={()=>setVista(id)}><I size={17}/><span>{label}</span>{badge>0&&<em>{badge}</em>}</button>}
 
-function Inicio({resumen,rutas,abrirPlanificador,setVista,setDetalle}){
+function Inicio({resumen,rutas,abrirPlanificador,setVista,setDetalle,solicitudes=[],disponibles={},existencias={},movPlanta=[]}){
   const pendientes=resumen.pendientes;
   const top=[...rutas].filter(r=>r.estadoRuta!=="SIN_PLANIFICAR").sort((a,b)=>cilindrosFila(b)-cilindrosFila(a)).slice(0,6);
   return <div className="dx-content">
+    <FuentesDistribucion {...{solicitudes,disponibles,existencias,movPlanta,setVista}}/>
     <div className="dx-kpis">
       <Kpi icon={ClipboardList} label="AD planificadas" value={resumen.asignadas.length} foot={`${rutas.length} comunidades en la jornada`}/>
-      <Kpi icon={Package2} label="Cilindros programados" value={num(resumen.total)} foot={`${num(resumen.kg)} kg · ${fmt(resumen.kg/.54,2)} L reales`}/>
+      <Kpi icon={Package2} label="Cilindros programados" value={num(resumen.total)} foot={<KgL kg={resumen.kg} />}/>
       <Kpi icon={Truck} label="Despachados" value={num(resumen.entregado)} foot={`${pct(resumen.entregado,resumen.total)} de la jornada`}/>
       <Kpi icon={Clock3} label="Pendientes de despacho" value={num(resumen.pendiente)} foot={`${resumen.pendientes.length} comunidades sin AD`}/>
     </div>
@@ -131,6 +149,59 @@ function Inicio({resumen,rutas,abrirPlanificador,setVista,setDetalle}){
       <div className="dx-ad-grid">{top.map(r=><button className="dx-ad-card" key={r.id} onClick={()=>setDetalle(r)}><div className="dx-ad-top"><Tag tone={estados[r.estadoRuta]?.tone}>{estados[r.estadoRuta]?.label}</Tag><span>AD {r.ad}</span></div><b>{r.comunidad}</b><p>{r.comuna}</p><div><span>{cilindrosFila(r)} cilindros</span><span>Placa {unidadDistribucion(r.unidad).placa||r.unidad}</span></div></button>)}</div>
     </Card>
   </div>
+}
+
+/* Distribución no planifica en el vacío: toma solicitudes canceladas de Comercialización,
+   gas disponible del control de planta y unidades con conductor y ayudante de Flota.
+   Este panel deja visible de dónde sale cada insumo antes de armar una AD. */
+function FuentesDistribucion({solicitudes=[],disponibles={},existencias={},movPlanta=[],setVista}){
+  const canceladas=solicitudes.filter(s=>s.pago?.estado==="VERIFICADO"&&s.estado!=="CULMINADO"&&s.estado!=="ABONADA");
+  const kgSolicitado=canceladas.reduce((a,s)=>a+kgDeSolicitud(s),0);
+  const dispKg=Object.values(disponibles).reduce((a,v)=>a+Number(v||0),0);
+  const fisKg=Object.values(existencias).reduce((a,v)=>a+Number(v||0),0);
+  const recepciones=movPlanta.filter(m=>m.tipo==="ENTRADA_GANDOLA").reduce((a,m)=>a+Number(m.kg||0),0);
+  const flota=UNIDADES_DISTRIBUCION.filter(u=>!u.granel).map(u=>({u,d:disponibilidadUnidad(u)}));
+  const listas=flota.filter(x=>x.d.disponible);
+  const trabadas=flota.filter(x=>!x.d.disponible);
+  const cobertura=kgSolicitado?Math.min(100,(dispKg/kgSolicitado)*100):100;
+
+  return <section className="dx-card dx-fuentes">
+    <div className="dx-card-head">
+      <div><h2>Insumos para planificar</h2><p>Distribución se alimenta de Comercialización, del control de planta y de Flota. Estas tres cifras condicionan lo que se puede planificar hoy.</p></div>
+    </div>
+    <div className="dx-fuentes-grid">
+      <button className="dx-fuente com" onClick={()=>setVista("pedidos")}>
+        <span>DESDE COMERCIALIZACIÓN</span>
+        <b>{num(canceladas.length)}</b>
+        <em>solicitudes canceladas por el usuario</em>
+        <small><KgL kg={kgSolicitado} /> por despachar</small>
+      </button>
+      <button className="dx-fuente ope" onClick={()=>setVista("planta")}>
+        <span>DESDE EL CONTROL DE PLANTA</span>
+        <b><KgL kg={dispKg} /></b>
+        <em>gas disponible real</em>
+        <small><KgL kg={fisKg} /> físicos · <KgL kg={recepciones} /> por gandola</small>
+      </button>
+      <button className="dx-fuente flo" onClick={()=>setVista("flota")}>
+        <span>DESDE FLOTA</span>
+        <b>{listas.length} / {flota.length}</b>
+        <em>vehículos con conductor y ayudante</em>
+        <small>{trabadas.length?`${trabadas.length} no disponible(s): ${trabadas.map(x=>x.u.placa).join(", ")}`:"toda la flota operativa"}</small>
+      </button>
+    </div>
+    <div className={`dx-cobertura ${cobertura>=100?"ok":cobertura>=70?"medio":"bajo"}`}>
+      <div><span>Cobertura del disponible sobre lo solicitado</span><b>{cobertura.toFixed(0)}%</b></div>
+      <div className="dx-cob-barra"><i style={{width:`${Math.min(100,cobertura)}%`}}/></div>
+      <small>{cobertura>=100
+        ? "El gas disponible alcanza para atender todas las solicitudes canceladas."
+        : `El disponible cubre ${cobertura.toFixed(0)}% de lo solicitado. Faltan ${kgYL(Math.max(0,kgSolicitado-dispKg))} para atender a todos.`}</small>
+    </div>
+    {trabadas.length>0&&<div className="dx-flota-alerta">
+      <AlertTriangle size={15}/>
+      <div><b>{trabadas.length} unidad(es) fuera de servicio</b>
+        <span>{trabadas.map(x=>`${x.u.placa}: ${x.d.motivos.join(" · ")}`).join(" | ")}</span></div>
+    </div>}
+  </section>;
 }
 
 function Pedidos({pedidos,rutas,aviso,onPlanCustom,onVerUsuario}){
@@ -212,7 +283,7 @@ function Pedidos({pedidos,rutas,aviso,onPlanCustom,onVerUsuario}){
 
   return <div className="dx-content">
     <div className="dx-livebar"><div><Radio size={15}/><b>Pedidos en vivo</b><span>Cada fila representa una solicitud individual que entra al flujo central del prototipo en tiempo real.</span></div><div className="dx-live-actions"><button className="dx-secondary" onClick={()=>aviso("Bandeja sincronizada")}><RefreshCw size={14}/>Actualizar</button><button className="dx-primary" disabled={!seleccionados.length} onClick={()=>onPlanCustom(seleccionados)}><ClipboardPlus size={14}/>Planificar AD personalizada {seleccionados.length?`(${seleccionados.length})`:""}</button></div></div>
-    <div className="dx-kpis orders"><Kpi icon={ClipboardList} label="Pedidos visibles" value={num(filtrados.length)} foot={`${num(pagados)} con pago verificado`}/><Kpi icon={FileText} label="Dentro de AD" value={num(enAD)} foot={`${num(filtrados.length-enAD)} todavía sin AD`}/><Kpi icon={Fuel} label="GLP solicitado" value={`${num(kgTotal)} kg`} foot={`${fmt(kgTotal/.54,2)} L reales`}/><Kpi icon={Users} label="Selección actual" value={num(seleccionados.length)} foot={seleccionadosSinPago?`${seleccionadosSinPago} sin pago requieren autorización`:`Lista para AD personalizada`}/></div>
+    <div className="dx-kpis orders"><Kpi icon={ClipboardList} label="Pedidos visibles" value={num(filtrados.length)} foot={`${num(pagados)} con pago verificado`}/><Kpi icon={FileText} label="Dentro de AD" value={num(enAD)} foot={`${num(filtrados.length-enAD)} todavía sin AD`}/><Kpi icon={Fuel} label="GLP solicitado" value={<KgL kg={kgTotal} />} foot="facturado por kilo, medido por litro"/><Kpi icon={Users} label="Selección actual" value={num(seleccionados.length)} foot={seleccionadosSinPago?`${seleccionadosSinPago} sin pago requieren autorización`:`Lista para AD personalizada`}/></div>
     <Card title="Bandeja individual de pedidos" subtitle="Filtra, revisa y selecciona cualquier pedido SIN AD. Puedes crear una jornada comunal o una AD completamente personalizada." action={<button className="dx-secondary" onClick={exportar}><Download size={14}/>CSV</button>}>
       <div className="dx-orders-help"><div><b>AD normal</b><span>Usualmente se seleccionan pedidos pagados de una misma comunidad.</span></div><div><b>AD personalizada</b><span>Puede mezclar comunidades o casos individuales. Los no pagados solo se permiten con autorización y motivo.</span></div></div>
       <div className="dx-orders-filters">
@@ -220,7 +291,7 @@ function Pedidos({pedidos,rutas,aviso,onPlanCustom,onVerUsuario}){
         <FilterSelect label="AD" value={estadoAD} set={setEstadoAD} options={[["TODOS","Todos"],["SIN_AD","Sin AD"],["EN_AD","En AD"]]}/><FilterSelect label="Pago" value={pago} set={setPago} options={[["TODOS","Todos"],["PAGADO","Pagado"],["PENDIENTE","Pendiente"]]}/><FilterSelect label="Segmento" value={segmento} set={setSegmento} options={[["TODOS","Todos"],["RESIDENCIAL","Residencial"],["COMERCIAL","Comercial"],["INSTITUCIONAL","Institucional"]]}/><FilterSelect label="Comuna" value={comuna} set={setComuna} options={[["TODAS","Todas"],...comunas.map(x=>[x,x])]}/><FilterSelect label="Comunidad" value={comunidad} set={setComunidad} options={[["TODAS","Todas"],...comunidades.map(x=>[x,x])]}/><FilterSelect label="Bombona" value={kg} set={setKg} options={[["TODOS","Todas"],["10","10 kg"],["18","18 kg"],["27","27 kg"],["43","43 kg"]]}/><FilterSelect label="Estado logístico" value={estadoLog} set={setEstadoLog} options={[["TODOS","Todos"],["SIN_PLANIFICAR","Sin planificar"],["ASIGNADA","Asignada"],["PREPARANDO","Preparando carga"],["LISTA_SALIDA","Lista para salida"],["EN_RUTA","En ruta"],["PARCIAL","Entrega parcial"],["ENTREGADA","Entregada"],["CERRADA","Cerrada"],["REPROGRAMADA","Reprogramada"],["INCIDENCIA","Incidencia"]]}/><FilterSelect label="Vehículo" value={placa} set={setPlaca} options={[["TODAS","Todas las placas"],...UNIDADES_DISTRIBUCION.filter(u=>!u.granel).map(u=>[u.placa,u.placa])]}/><FilterSelect label="Operador" value={operador} set={setOperador} options={[["TODOS","Todos"],...OPERADORES_DISTRIBUCION.filter(o=>o.activo).map(o=>[o.id,`${o.nombre} · ${o.cedula}`])]}/><FilterSelect label="Municipio" value={municipio} set={setMunicipio} options={[["TODOS","Todos"],["IRIBARREN","Iribarren"],["PALAVECINO","Palavecino"]]}/><FilterSelect label="Parroquia" value={parroquia} set={setParroquia} options={[["TODAS","Todas"],...parroquias.map(x=>[x,x])]}/><FilterSelect label="Antigüedad" value={antiguedad} set={setAntiguedad} options={[["TODAS","Todas"],["0_7","0–7 días"],["8_15","8–15 días"],["16_30","16–30 días"],["31_MAS","+30 días"]]}/><FilterSelect label="Prioridad" value={prioridad} set={setPrioridad} options={[["TODAS","Todas"],["NORMAL","Normal"],["MEDIA","Media"],["ALTA","Alta"]]}/><FilterSelect label="Tipo de AD" value={tipoPlan} set={setTipoPlan} options={[["TODOS","Todos"],["COMUNAL","Jornada comunal"],["PERSONALIZADA","Personalizada"]]}/><FilterSelect label="Período" value={periodo} set={setPeriodo} options={[["HOY","Hoy"],["SEMANA","Esta semana"],["MES","Este mes"]]}/><button className="dx-clear" onClick={limpiar}><X size={13}/>Limpiar filtros</button>
       </div>
       <div className="dx-selectionbar"><div><b>{seleccionados.length} seleccionados</b><span>{seleccionados.filter(p=>p.pagado).length} pagados · {seleccionadosSinPago} sin pago</span></div><div><button className="dx-secondary" onClick={seleccionarPagados}>Seleccionar pagados filtrados</button><button className="dx-secondary" onClick={seleccionarSinAD}>Seleccionar todos Sin AD</button><button className="dx-secondary" onClick={()=>setSeleccion(new Set())}>Limpiar selección</button><button className="dx-primary" disabled={!seleccionados.length} onClick={()=>onPlanCustom(seleccionados)}><ClipboardPlus size={14}/>Planificar AD</button></div></div>
-      <div className="dx-table-wrap orders-table"><table className="dx-table"><thead><tr><th></th><th>Pedido</th><th>Solicitante</th><th>Comuna / comunidad</th><th>Pago</th><th>Edad / prioridad</th><th>Solicitud</th><th>GLP</th><th>AD</th><th>Logística</th><th>Acción</th></tr></thead><tbody>{visible.map(p=>{const r=rutas.find(x=>x.id===p.rutaId);const op=operadorDistribucion(p.operadorId||r?.operadorId);const unidad=unidadDistribucion(p.unidad||r?.unidad);return <tr key={p.id} className={!p.pagado?"muted":""}><td><input type="checkbox" disabled={Boolean(p.ad)} checked={seleccion.has(p.id)} onChange={()=>toggle(p)}/></td><td><b>{p.pedidoId}</b><span>{p.fechaPedido} · {p.horaPedido}</span></td><td><b>{p.nombre}</b><span>{p.cedula} · {p.segmento}</span></td><td><b>{p.comunidad}</b><span>{p.comuna}</span></td><td><Tag tone={p.pagado?"green":"amber"}>{p.pagado?"Verificado":"Sin pago"}</Tag></td><td>{(()=>{const age=Math.max(0,Number(p.diasEspera??r?.dias??0));return <><Tag tone={age>=31?"red":age>=16?"amber":"slate"}>{age} días</Tag><span>{age>=31?"Prioridad alta":age>=16?"Prioridad media":"Normal"}</span></>})()}</td><td><b>{p.cantidad||1} × {p.kg} kg</b><span>{num(p.totalKg??((p.kg||0)*(p.cantidad||1)))} kg</span></td><td><b>{fmt(p.litros||((p.kg||0)*(p.cantidad||1)/.54),2)} L</b><span>1 L = 0,540 kg</span></td><td>{p.ad?<><b>{p.ad}</b><Tag tone="green">En AD</Tag></>:<Tag tone="amber">Sin AD</Tag>}</td><td>{p.ad?<><b>{unidad.placa||p.unidad}</b><span>{op.nombre} · {op.cedula}</span></>:<span>Disponible para planificación</span>}</td><td><div className="dx-row-actions"><button className="dx-user-link" onClick={()=>onVerUsuario(p)}>Ver usuario</button>{!p.ad&&<button className="dx-row-plan" onClick={()=>onPlanCustom([p])}><ClipboardPlus size={12}/>Planificar</button>}</div></td></tr>})}</tbody></table></div>
+      <div className="dx-table-wrap orders-table"><table className="dx-table"><thead><tr><th></th><th>Pedido</th><th>Solicitante</th><th>Comuna / comunidad</th><th>Pago</th><th>Edad / prioridad</th><th>Solicitud</th><th>GLP</th><th>AD</th><th>Logística</th><th>Acción</th></tr></thead><tbody>{visible.map(p=>{const r=rutas.find(x=>x.id===p.rutaId);const op=operadorDistribucion(p.operadorId||r?.operadorId);const unidad=unidadDistribucion(p.unidad||r?.unidad);return <tr key={p.id} className={!p.pagado?"muted":""}><td><input type="checkbox" disabled={Boolean(p.ad)} checked={seleccion.has(p.id)} onChange={()=>toggle(p)}/></td><td><b>{p.pedidoId}</b><span>{p.fechaPedido} · {p.horaPedido}</span></td><td><b>{p.nombre}</b><span>{p.cedula} · {p.segmento}</span></td><td><b>{p.comunidad}</b><span>{p.comuna}</span></td><td><Tag tone={p.pagado?"green":"amber"}>{p.pagado?"Verificado":"Sin pago"}</Tag></td><td>{(()=>{const age=Math.max(0,Number(p.diasEspera??r?.dias??0));return <><Tag tone={age>=31?"red":age>=16?"amber":"slate"}>{age} días</Tag><span>{age>=31?"Prioridad alta":age>=16?"Prioridad media":"Normal"}</span></>})()}</td><td><b>{p.cantidad||1} × {p.kg} kg</b></td><td><b><KgL kg={p.totalKg??((p.kg||0)*(p.cantidad||1))} /></b></td><td>{p.ad?<><b>{p.ad}</b><Tag tone="green">En AD</Tag></>:<Tag tone="amber">Sin AD</Tag>}</td><td>{p.ad?<><b>{unidad.placa||p.unidad}</b><span>{op.nombre} · {op.cedula}</span></>:<span>Disponible para planificación</span>}</td><td><div className="dx-row-actions"><button className="dx-user-link" onClick={()=>onVerUsuario(p)}>Ver usuario</button>{!p.ad&&<button className="dx-row-plan" onClick={()=>onPlanCustom([p])}><ClipboardPlus size={12}/>Planificar</button>}</div></td></tr>})}</tbody></table></div>
       <div className="dx-pagination"><span>Mostrando {visible.length} de {num(filtrados.length)} pedidos · página {pagina} de {pages}</span><div><button className="dx-secondary" disabled={pagina<=1} onClick={()=>setPagina(p=>Math.max(1,p-1))}>Anterior</button><button className="dx-secondary" disabled={pagina>=pages} onClick={()=>setPagina(p=>Math.min(pages,p+1))}>Siguiente</button></div></div>
     </Card>
   </div>
@@ -229,34 +300,134 @@ function Pedidos({pedidos,rutas,aviso,onPlanCustom,onVerUsuario}){
 
 function FilterSelect({label,value,set,options}){return <label className="dx-filter-select"><span>{label}</span><select value={value} onChange={e=>set(e.target.value)}>{options.map(([v,l])=><option key={`${label}-${v}`} value={v}>{l}</option>)}</select></label>}
 
-function Planificar({rutas,buscar,setBuscar,abrirPlanificador}){
-  const rutasComunitarias=rutas.filter(r=>r.tipoPlanificacion!=="PERSONALIZADA");
-  return <div className="dx-content">
-    <div className="dx-toolbar"><div className="dx-search"><Search size={15}/><input value={buscar} onChange={e=>setBuscar(e.target.value)} placeholder="Buscar comuna o comunidad"/></div></div>
-    <Card title="Comunidades listas para planificación" subtitle="Cada fila representa una comunidad; abre el proceso para ver y seleccionar sus pedidos individuales.">
-      <div className="dx-community-list">
-        {rutasComunitarias.map(r=>{
-          const us=usuariosRuta(r), pag=us.filter(x=>x.pagado).length, sin=us.filter(x=>!x.pagado).length;
-          return <div className="dx-community" key={r.id}>
-            <div className="dx-community-main"><Tag tone={r.estadoRuta==="SIN_PLANIFICAR"?"amber":"green"}>{r.estadoRuta==="SIN_PLANIFICAR"?"Pendiente":"AD creada"}</Tag><div><b>{r.comunidad}</b><span>{r.comuna} · {r.parroquia||r.bloque}</span></div></div>
-            <div className="dx-community-counts"><div><span>Registrados</span><b>{us.length}</b></div><div><span>Pagados</span><b>{pag}</b></div><div><span>Sin pago</span><b>{sin}</b></div><div><span>Cilindros</span><b>{cilindrosFila(r)}</b></div></div>
-            <button className={r.estadoRuta==="SIN_PLANIFICAR"?"dx-primary":"dx-secondary"} onClick={()=>abrirPlanificador(r)}>{r.estadoRuta==="SIN_PLANIFICAR"?<><ClipboardPlus size={14}/>Planificar AD</>:<><FileText size={14}/>Revisar AD</>}</button>
-          </div>
-        })}
-      </div>
-    </Card>
-  </div>
-}
+/* La vista Planificar se retiro el 01/09/2026: es el segmento «Por planificar» de
+   AD del dia. Eran la misma lista de comunidades con el mismo boton, en dos
+   pantallas distintas. */
 
-function ADs({rutas,buscar,setBuscar,setDetalle,abrirPlanificador}){
-  const visibles=rutas.filter(r=>r.estadoRuta!=="SIN_PLANIFICAR");
+
+/* ── AD DEL DÍA ────────────────────────────────────────────────────────────────
+   Una sola pantalla para las AD. Antes eran cuatro —Planificar, AD del día,
+   Replanificar y Agenda— que mostraban la misma lista de 27 rutas con otro filtro
+   y otro layout. Aquí son segmentos, y el AD conserva su peso: sigue siendo la
+   unidad operativa, la ruta, el camión y el conductor.
+
+   Lo que cambió es que ahora se abre a su gente. Antes del AD la única incidencia
+   es el pago; lo que ocurra con las bombonas se sabe en el punto y se registra al
+   cerrar. */
+function ADs({rutas,solicitudes=[],buscar,setBuscar,setDetalle,abrirPlanificador,actualizar,onVerUsuario,aviso}){
+  const [abierta,setAbierta]=useState(null);
+  const [seg,setSeg]=useState("ACTIVAS");
+  const [reasignar,setReasignar]=useState(null);
+  const [doc,setDoc]=useState(null);
+
+  const porPlanificar=rutas.filter(r=>r.estadoRuta==="SIN_PLANIFICAR");
+  const creadas=rutas.filter(r=>r.estadoRuta!=="SIN_PLANIFICAR");
+  const CERRADAS=["ENTREGADA","CERRADA","PARCIAL"];
+  const grupos={
+    POR_PLANIFICAR:porPlanificar,
+    ACTIVAS:creadas.filter(r=>!CERRADAS.includes(r.estadoRuta)),
+    EN_RUTA:creadas.filter(r=>r.estadoRuta==="EN_RUTA"),
+    INCIDENCIA:creadas.filter(r=>r.estadoRuta==="INCIDENCIA"),
+    CERRADAS:creadas.filter(r=>CERRADAS.includes(r.estadoRuta)),
+    TODAS:rutas,
+  };
+  const lista=grupos[seg]||creadas;
+
+  const cuadres=useMemo(()=>Object.fromEntries(rutas.map(r=>[r.id,cuadreAD(r,solicitudes)])),[rutas,solicitudes]);
+  const tot=creadas.reduce((a,r)=>{const c=cuadres[r.id];return{
+    plan:a.plan+c.planificado,per:a.per+c.personas.length,conv:a.conv+c.convocadas.length,
+    sinPago:a.sinPago+c.sinPago.length,rech:a.rech+c.rechazados.length};},
+    {plan:0,per:0,conv:0,sinPago:0,rech:0});
+  const fuera=tot.sinPago+tot.rech;
+
+  function exportarADs(){
+    const rows=[["REPORTE CONSOLIDADO DE AD","14-08-2026"],[],
+      ["AD","Estado","Comuna","Comunidad","Ruta","Placa","Operador","Personas","Convocadas","Sin pago","Bombonas en lista","Kg","Litros"]];
+    creadas.forEach(r=>{const c=cuadres[r.id];const u=unidadDistribucion(r.unidad)||{};
+      rows.push([r.ad,estados[r.estadoRuta]?.label||r.estadoRuta,r.comuna,r.comunidad,r.ruta||"",
+        u.placa||r.unidad||"",r.conductor||"",c.personas.length,c.convocadas.length,
+        c.sinPago.length+c.rechazados.length,c.planificado,kgFila(r),kgALitros(kgFila(r)).toFixed(2)]);});
+    descargar("reporte-consolidado-ad-14-08-2026.csv",csv(rows));
+    aviso?.("Reporte de AD exportado");
+  }
+
+  const SEGMENTOS=[["POR_PLANIFICAR","Por planificar"],["ACTIVAS","Activas"],["EN_RUTA","En ruta"],
+    ["INCIDENCIA","Con incidencia"],["CERRADAS","Cerradas"],["TODAS","Todas"]];
+
   return <div className="dx-content">
+    <PersonasStyles/>
     <div className="dx-toolbar"><div className="dx-search"><Search size={15}/><input value={buscar} onChange={e=>setBuscar(e.target.value)} placeholder="Buscar AD, comuna, placa, operador o ruta"/></div></div>
-    <Card title="AD del día" subtitle="Todas las asignaciones creadas por Distribución">
-      <div className="dx-lifecycle"><span>Borrador</span><i>→</i><span>Planificada</span><i>→</i><span>Asignada</span><i>→</i><span>Preparando carga</span><i>→</i><span>Lista para salida</span><i>→</i><span>En ruta</span><i>→</i><span>Entrega parcial</span><i>→</i><span>Entregada</span><i>→</i><span>Cerrada</span></div>
-      <div className="dx-table-wrap"><table className="dx-table"><thead><tr><th>AD</th><th>Comuna / comunidad</th><th>Carga</th><th>Ruta</th><th>Vehículo / operador</th><th>Estado</th><th></th></tr></thead><tbody>{visibles.map(r=>{const u=unidadDistribucion(r.unidad);return <tr key={r.id}><td><b>{r.ad}</b>{r.tipoPlanificacion==="PERSONALIZADA"&&<Tag tone="blue">Personalizada</Tag>}</td><td><b>{r.comunidad}</b><span>{r.comuna}</span></td><td><b>{cilindrosFila(r)} cil.</b><span>{num(kgFila(r))} kg</span></td><td><b>{r.ruta||"—"}</b><span>{r.parroquia||r.bloque}</span></td><td><b>Placa {u.placa||r.unidad}</b><span>{r.conductor||"Por asignar"} · {r.conductorCedula||"—"}</span></td><td><Tag tone={estados[r.estadoRuta]?.tone}>{estados[r.estadoRuta]?.label}</Tag></td><td><button className="dx-iconbtn" onClick={()=>setDetalle(r)}><ChevronRight size={15}/></button></td></tr>})}</tbody></table></div>
+
+    {fuera>0&&<div className="dx-flota-alerta"><AlertTriangle size={16}/>
+      <div><b>{num(fuera)} personas de la lista no entran hoy a la jornada.</b>
+        <span>La lista se armó con {num(tot.plan)} bombonas para {num(tot.per)} personas. De ellas, {num(tot.sinPago)} no han
+          reportado pago y {num(tot.rech)} lo tienen rechazado por la regla: solo {num(tot.conv)} están convocadas.
+          Lo que ocurra con sus bombonas —quién la llevó al punto, cuáles volvieron llenas— se sabe en el sitio.</span></div></div>}
+
+    <Card title="AD del día"
+      subtitle="Cada AD abre a su listado de personas. Antes de salir, lo único que decide quién entra es el pago."
+      action={<div className="dx-report-actions">
+        <button className="dx-secondary" onClick={exportarADs}><Download size={14}/>CSV</button>
+        <button className="dx-primary" onClick={()=>setDoc({tipo:"TODAS",rutas:creadas})}><FileText size={14}/>Imprimir todas</button>
+      </div>}>
+      <div className="dx-segmentos">
+        {SEGMENTOS.map(([k,l])=><button key={k} className={seg===k?"on":""} onClick={()=>{setSeg(k);setAbierta(null)}}>{l} <em>{num((grupos[k]||[]).length)}</em></button>)}
+      </div>
+
+      {seg==="POR_PLANIFICAR"
+        ? <div className="dx-community-list">
+            {lista.map(r=>{const us=usuariosRuta(r),pag=us.filter(x=>x.pagado).length,sin=us.length-pag;
+              return <div className="dx-community" key={r.id}>
+                <div className="dx-community-main"><Tag tone="amber">Pendiente</Tag>
+                  <div><b>{r.comunidad}</b><span>{r.comuna} · {r.parroquia||r.bloque}</span></div></div>
+                <div className="dx-community-counts">
+                  <div><span>En la lista</span><b>{us.length}</b></div>
+                  <div><span>Pagados</span><b>{pag}</b></div>
+                  <div><span>Sin pago</span><b>{sin}</b></div>
+                  <div><span>Bombonas</span><b>{cilindrosFila(r)}</b></div></div>
+                <button className="dx-primary" onClick={()=>abrirPlanificador(r)}><ClipboardPlus size={14}/>Planificar AD</button>
+              </div>;})}
+            {!lista.length&&<div className="dx-vacio-seg">No queda ninguna comunidad por planificar.</div>}
+          </div>
+        : <div className="dx-table-wrap"><table className="dx-table"><thead><tr>
+            <th>AD</th><th className="dp-ad-comuna">Comuna / comunidad</th><th className="dp-ad-carga">Bombonas y personas</th>
+            <th className="dp-ad-ruta">Ruta y salida</th><th className="dp-ad-veh">Vehículo / operador</th><th>Estado</th><th></th>
+          </tr></thead><tbody>
+            {lista.map(r=>{const u=unidadDistribucion(r.unidad)||{};const c=cuadres[r.id];const ab=abierta===r.id;
+              return <React.Fragment key={r.id}>
+                <tr className={ab?"dx-fila-on":""}>
+                  <td><b>{r.ad}</b>{r.tipoPlanificacion==="PERSONALIZADA"&&<Tag tone="blue">Personalizada</Tag>}</td>
+                  <td className="dp-ad-comuna"><b>{r.comunidad}</b><span>{r.comuna}</span></td>
+                  <td className="dp-ad-carga"><b>{num(c.planificado)} bombonas en lista</b><span><KgL kg={kgFila(r)} /></span><CuadreChips c={c}/></td>
+                  <td className="dp-ad-ruta"><b>{r.ruta||"—"}</b><span>{r.horaSalida?`Salió ${r.horaSalida}`:"Sin salida registrada"}</span></td>
+                  <td className="dp-ad-veh"><b>Placa {u.placa||r.unidad}</b><span>{r.conductor||"Por asignar"} · {r.conductorCedula||"—"}</span></td>
+                  <td><Tag tone={estados[r.estadoRuta]?.tone}>{estados[r.estadoRuta]?.label}</Tag></td>
+                  <td className="dx-ad-acc">
+                    <button className="dx-secondary" onClick={()=>setAbierta(ab?null:r.id)}><Users size={13}/>{ab?"Ocultar":"Personas"}</button>
+                    {!CERRADAS.includes(r.estadoRuta)&&<button className="dx-secondary" onClick={()=>setReasignar(r)} title="Cambiar vehículo, operador o ruta"><RefreshCw size={13}/></button>}
+                    <button className="dx-secondary" onClick={()=>setDoc({tipo:"AD",rutas:[r]})} title="Ver e imprimir"><FileText size={13}/></button>
+                    <button className="dx-iconbtn" onClick={()=>setDetalle(r)}><ChevronRight size={15}/></button>
+                  </td>
+                </tr>
+                {ab&&<tr className="dx-fila-personas"><td colSpan={7}>
+                  <ListaPersonasAD ruta={r} solicitudes={solicitudes} onVerUsuario={onVerUsuario}/>
+                </td></tr>}
+              </React.Fragment>;})}
+          </tbody>
+          <tfoot><tr>
+            <td colSpan={2}>TOTALES · {num(creadas.length)} AD creadas</td>
+            <td><b>{num(tot.plan)} bombonas en lista</b><span>{num(tot.per)} personas · {num(tot.conv)} convocadas</span></td>
+            <td colSpan={4}></td>
+          </tr></tfoot>
+          </table>
+          {!lista.length&&<div className="dx-vacio-seg">Ninguna AD en este segmento.</div>}
+        </div>}
     </Card>
-  </div>
+
+    {reasignar&&<Reasignar r={reasignar} onClose={()=>setReasignar(null)}
+      onSave={d=>{actualizar(reasignar.id,d);setReasignar(null);aviso?.(`AD ${reasignar.ad} reasignada`)}}/>}
+    {doc&&<ReporteADViewer doc={doc} onClose={()=>setDoc(null)}/>}
+  </div>;
 }
 
 function Comunas({rutas,onVerUsuario}){
@@ -278,45 +449,11 @@ function Comunas({rutas,onVerUsuario}){
   </div>
 }
 
-function Reportes({rutas,resumen,aviso}){
-  const rep=REPORTE_1308;
-  const [doc,setDoc]=useState(null);
-  const [buscarAD,setBuscarAD]=useState("");
-  const ads=useMemo(()=>rutas.filter(r=>r.estadoRuta!=="SIN_PLANIFICAR"&&r.ad&&String(r.ad)!=="0"),[rutas]);
-  const visibles=useMemo(()=>{
-    const q=buscarAD.trim().toLowerCase();
-    if(!q)return ads;
-    return ads.filter(r=>[r.ad,r.comuna,r.comunidad,r.ruta,r.unidad,r.placa,r.conductor,r.conductorCedula].filter(Boolean).join(" ").toLowerCase().includes(q));
-  },[ads,buscarAD]);
-  const fuerza=rutas.filter(r=>unidadDistribucion(r.unidad).tipo==="FUERZA_PROPIA").reduce((a,r)=>a+cilindrosFila(r),0);
-  const epsdc=rutas.filter(r=>unidadDistribucion(r.unidad).tipo==="EPSDC").reduce((a,r)=>a+cilindrosFila(r),0);
-  function exportar(){descargar("reporte-distribucion.csv",csv([["REPORTE DE DISTRIBUCIÓN","14-08-2026"],["Cilindros programados",resumen.total],["Entregados",resumen.entregado],["Pendientes",resumen.total-resumen.entregado],["Fuerza propia",fuerza],["EPSDC",epsdc]]));aviso("Reporte exportado")}
-  function exportarADs(){
-    const rows=[["REPORTE CONSOLIDADO DE AD","14-08-2026"],[],["AD","Tipo","Estado","Comuna","Comunidad","Ruta","Placa","Operador","Cédula operador","Transportista","Pedidos","Pagados","Sin pago autorizado","10kg","18kg","27kg","43kg","Cilindros","Kg","Litros reales"]];
-    ads.forEach(r=>{
-      const ps=pedidosReporteAD(r),u=unidadDistribucion(r.unidad);
-      rows.push([r.ad,r.tipoPlanificacion==="PERSONALIZADA"?"Personalizada":"Comunal",estados[r.estadoRuta]?.label||r.estadoRuta,r.comuna,r.comunidad,r.ruta||"",u.placa||r.placa||r.unidad,r.conductor||"",r.conductorCedula||"",tipoFlota[u.tipo]||u.tipo,ps.length,ps.filter(p=>p.pagado).length,ps.filter(p=>!p.pagado).length,r.cilindros[10]||0,r.cilindros[18]||0,r.cilindros[27]||0,r.cilindros[43]||0,cilindrosFila(r),kgFila(r),litrosInventarioFila(r).toFixed(2)]);
-    });
-    descargar("reporte-consolidado-ad-14-08-2026.csv",csv(rows));aviso("Consolidado de AD exportado");
-  }
-  return <div className="dx-content">
-    <div className="dx-kpis"><Kpi icon={Package2} label="Programado hoy" value={num(resumen.total)} foot={`${ads.length} AD creadas`}/><Kpi icon={CheckCircle2} label="Entregado" value={num(resumen.entregado)} foot={`${pct(resumen.entregado,resumen.total)} cumplimiento`}/><Kpi icon={Truck} label="Fuerza propia" value={num(fuerza)} foot={`${pct(fuerza,resumen.total)} del plan`}/><Kpi icon={Route} label="EPSDC" value={num(epsdc)} foot={`${pct(epsdc,resumen.total)} del plan`}/></div>
-    <div className="dx-grid two"><Card title="Cumplimiento del despacho" subtitle="Planificado vs ejecutado"><Bars rows={[["Entregado",resumen.entregado,"green"],["En ruta",resumen.enRuta,"blue"],["Pendiente",resumen.total-resumen.entregado,"slate"]]} total={resumen.total}/></Card><Card title="Reporte cerrado 13-08-2026" subtitle="Referencia histórica del día anterior" action={<button className="dx-secondary" onClick={exportar}><Download size={14}/>Exportar</button>}><div className="dx-report-grid"><div><span>Total cilindros</span><b>{num(rep.especiales.total.total)}</b></div><div><span>Familias</span><b>{num(rep.familias)}</b></div><div><span>Comunidades</span><b>{num(rep.comunidades)}</b></div><div><span>Nivel inicial</span><b>{rep.nivelInicio}%</b></div></div></Card></div>
-    <Card title="Reportes de AD" subtitle="Cada AD se puede revisar e imprimir con su detalle individual. También puedes imprimir el libro completo del día." action={<div className="dx-report-actions"><button className="dx-secondary" onClick={exportarADs}><Download size={14}/>CSV AD</button><button className="dx-primary" onClick={()=>setDoc({tipo:"TODAS",rutas:ads})}><FileText size={14}/>Imprimir todas las AD</button></div>}>
-      <div className="dx-report-toolbar"><div className="dx-search"><Search size={15}/><input value={buscarAD} onChange={e=>setBuscarAD(e.target.value)} placeholder="Buscar por AD, comuna, comunidad, placa u operador"/></div><span>{visibles.length} de {ads.length} AD</span></div>
-      <div className="dx-ad-report-list">
-        {visibles.map(r=>{const ps=pedidosReporteAD(r),u=unidadDistribucion(r.unidad);return <article key={r.id} className="dx-ad-report-row">
-          <div className="dx-ad-report-main"><div className="dx-ad-number"><span>AD</span><b>{r.ad}</b></div><div><strong>{r.comunidad}</strong><span>{r.comuna}</span></div></div>
-          <div className="dx-ad-report-stats"><div><span>Pedidos</span><b>{ps.length}</b></div><div><span>Cilindros</span><b>{cilindrosFila(r)}</b></div><div><span>GLP</span><b>{num(kgFila(r))} kg</b></div></div>
-          <div className="dx-ad-report-log"><b>Placa {u.placa||r.placa||r.unidad}</b><span>{r.conductor||"Por asignar"} · {r.conductorCedula||"—"}</span><Tag tone={estados[r.estadoRuta]?.tone}>{estados[r.estadoRuta]?.label}</Tag></div>
-          <button className="dx-secondary" onClick={()=>setDoc({tipo:"AD",rutas:[r]})}><FileText size={14}/>Ver / imprimir</button>
-        </article>})}
-      </div>
-    </Card>
-    <Card title="Distribución por segmento" subtitle="Cilindros del reporte cerrado del 13-08"><Bars rows={[["Residencial",rep.especiales.residencial.total,"green"],["Instituciones",rep.especiales.instituciones.total,"blue"],["Exonerados",rep.especiales.exonerados.total,"amber"],["Comercial",rep.especiales.comercial.total,"slate"]]} total={rep.especiales.total.total}/></Card>
-    {doc&&<ReporteADViewer doc={doc} onClose={()=>setDoc(null)}/>} 
-  </div>
-}
+/* Reportes se retiro el 01/09/2026 y se repartio.
+   Mezclaba datos vivos con un reporte congelado del dia anterior sin avisarlo. El
+   cumplimiento del despacho ya vivia en Resumen; la impresion y el CSV de AD se
+   fueron a AD del dia, que es donde estan las AD. */
+
 
 function pedidosReporteAD(r){
   return pedidosDeRutas([r]).filter(p=>p.ad&&String(p.ad)===String(r.ad));
@@ -335,7 +472,7 @@ function ReporteADViewer({doc,onClose}){
       <div className="dx-print-paper">
         {todas&&<section className="dx-print-cover">
           <div className="dx-print-brand"><img src={LOGO_GASLARA}/><div><small>C.D.T. GRAL. JACINTO LARA</small><h1>LIBRO DE AD · DISTRIBUCIÓN</h1><p>Jornada operativa 14-08-2026</p></div></div>
-          <div className="dx-print-cover-grid"><div><span>AD incluidas</span><b>{rutas.length}</b></div><div><span>Cilindros</span><b>{num(totalCil)}</b></div><div><span>GLP</span><b>{num(totalKg)} kg</b></div><div><span>Litros reales</span><b>{fmt(totalKg/.54,2)} L</b></div></div>
+          <div className="dx-print-cover-grid"><div><span>AD incluidas</span><b>{rutas.length}</b></div><div><span>Cilindros</span><b>{num(totalCil)}</b></div><div><span>GLP</span><b><KgL kg={totalKg} /></b></div></div>
           <p className="dx-print-cover-note">Documento consolidado generado desde la misma planificación utilizada por Distribución y Operaciones. Cada AD se presenta en una sección independiente con su respaldo individual.</p>
         </section>}
         {rutas.map((r,i)=><ReporteAD key={`${r.id}-${i}`} ruta={r} pageBreak={todas&&i>0}/>) }
@@ -379,15 +516,14 @@ function ReporteAD({ruta,pageBreak}){
     <div className="dx-print-load-grid">
       {[10,18,27,43].map(k=><div key={k}><span>Bombona {k} kg</span><b>{ruta.cilindros[k]||0}</b></div>)}
       <div className="strong"><span>Total cilindros</span><b>{cilindrosFila(ruta)}</b></div>
-      <div className="strong"><span>Total GLP</span><b>{num(kgFila(ruta))} kg</b></div>
-      <div className="strong"><span>Litros reales</span><b>{fmt(litrosInventarioFila(ruta),2)} L</b></div>
+      <div className="strong"><span>Total GLP</span><b><KgL kg={kgFila(ruta)} /></b></div>
       <div><span>Pedidos / beneficiarios</span><b>{pedidos.length}</b></div>
     </div>
 
     {ruta.tipoPlanificacion==="PERSONALIZADA"&&ruta.justificacionCustom&&<div className="dx-print-auth"><b>Autorización / justificación de AD personalizada</b><span>{ruta.justificacionCustom}</span></div>}
 
     <div className="dx-print-section-title">4. Detalle de pedidos incluidos en la AD</div>
-    <div className="dx-print-table-wrap"><table className="dx-print-table"><thead><tr><th>#</th><th>Pedido</th><th>Solicitante</th><th>Cédula / RIF</th><th>Comunidad</th><th>Pago</th><th>Cant.</th><th>Cilindro</th><th>Kg</th><th>Litros</th></tr></thead><tbody>{pedidos.map((p,i)=>{const kg=Number(p.totalKg??((p.kg||0)*(p.cantidad||1)));return <tr key={p.id}><td>{i+1}</td><td>{p.pedidoId||p.id}</td><td>{p.nombre}</td><td>{p.cedula}</td><td>{p.comunidad||ruta.comunidad}</td><td>{p.pagado?"PAGO VERIFICADO":`AUTORIZADO · ${p.autorizacionSinPago?.tipo||ruta.tipoDespachoCustom||"EXCEPCIÓN"}`}</td><td>{p.cantidad||1}</td><td>{p.kg?`${p.kg} kg`:"—"}</td><td>{fmt(kg,2)}</td><td>{fmt(kg/.54,2)}</td></tr>})}</tbody><tfoot><tr><td colSpan="6">TOTALES</td><td>{totalCant}</td><td></td><td>{fmt(totalKg,2)}</td><td>{fmt(totalKg/.54,2)}</td></tr></tfoot></table></div>
+    <div className="dx-print-table-wrap"><table className="dx-print-table"><thead><tr><th>#</th><th>Pedido</th><th>Solicitante</th><th>Cédula / RIF</th><th>Comunidad</th><th>Pago</th><th>Cant.</th><th>Cilindro</th><th>GLP</th></tr></thead><tbody>{pedidos.map((p,i)=>{const kg=Number(p.totalKg??((p.kg||0)*(p.cantidad||1)));return <tr key={p.id}><td>{i+1}</td><td>{p.pedidoId||p.id}</td><td>{p.nombre}</td><td>{p.cedula}</td><td>{p.comunidad||ruta.comunidad}</td><td>{p.pagado?"PAGO VERIFICADO":`AUTORIZADO · ${p.autorizacionSinPago?.tipo||ruta.tipoDespachoCustom||"EXCEPCIÓN"}`}</td><td>{p.cantidad||1}</td><td>{p.kg?`${p.kg} kg`:"—"}</td><td><KgL kg={kg} /></td></tr>})}</tbody><tfoot><tr><td colSpan="6">TOTALES</td><td>{totalCant}</td><td></td><td><KgL kg={totalKg} /></td></tr></tfoot></table></div>
 
     <div className="dx-print-summary-line"><span>Pagados: <b>{pagados.length}</b></span><span>Sin pago incluidos bajo autorización: <b>{sinPago.length}</b></span><span>Pedidos totales: <b>{pedidos.length}</b></span></div>
 
@@ -445,8 +581,8 @@ function WizardADPersonalizada({pedidos,rutas,onClose,onSave}){
     <div className="dx-wsteps"><StepTab n="1" label="Pedidos" on={paso===1} done={paso>1}/><i/><StepTab n="2" label="Logística y autorización" on={paso===2} done={paso>2}/><i/><StepTab n="3" label="Confirmar" on={paso===3}/></div>
     <main>
       {paso===1&&<><div className="dx-wintro"><div><b>1. Define exactamente qué pedidos entran</b><span>Esta AD no depende de una sola comuna. Puedes mezclar pedidos SIN AD según la necesidad operativa.</span></div><div className="dx-wcounts"><span>{selected.length} incluidos</span><span>{selected.filter(p=>p.pagado).length} pagados</span><span>{sinPago.length} sin pago</span></div></div>{sinPago.length>0&&<div className="dx-custom-warning"><AlertTriangle size={15}/><span>Hay {sinPago.length} pedidos sin pago. Pueden permanecer seleccionados, pero en el siguiente paso debes registrar el tipo de autorización y una justificación.</span></div>}<div className="dx-user-toolbar"><button className="dx-secondary" onClick={()=>setIncluidos(new Set(pedidos.filter(p=>p.pagado).map(p=>p.id)))}>Dejar solo pagados</button><button className="dx-secondary" onClick={()=>setIncluidos(new Set(pedidos.map(p=>p.id)))}>Restaurar selección</button></div><UserTable rows={pedidos} selected={incluidos} toggle={toggle} allowUnpaid/></>}
-      {paso===2&&<><div className="dx-wintro"><div><b>2. Asigna la logística de la AD</b><span>Distribución elige ruta, vehículo y operador. Si hay pedidos no pagados, documenta por qué se autorizan.</span></div></div><div className="dx-formgrid"><label><span>Número AD</span><input value={ad} onChange={e=>setAd(e.target.value)}/></label><label><span>Ruta / descripción</span><input value={route} onChange={e=>setRoute(e.target.value)} placeholder="Ej. Ruta especial Palavecino"/></label><label><span>Vehículo / placa</span><select value={unidad} onChange={e=>setUnidad(e.target.value)}>{UNIDADES_DISTRIBUCION.filter(u=>!u.granel).map(u=><option key={u.id} value={u.id}>{u.placa} · {u.etiqueta}</option>)}</select></label><label><span>Operador / conductor</span><select value={operadorId} onChange={e=>setOperadorId(e.target.value)}>{opsCompatibles.map(o=><option key={o.id} value={o.id}>{o.nombre} · {o.cedula}</option>)}</select></label><label><span>Modalidad del AD</span><select value={tipo} onChange={e=>setTipo(e.target.value)}><option value="NORMAL">Normal · requiere pago</option><option value="EXONERADO">Exonerado autorizado</option><option value="APOYO">Apoyo / programa especial</option><option value="INSTITUCIONAL">Institucional</option><option value="EXCEPCION">Excepción autorizada</option></select></label><label><span>Transportista</span><input readOnly value={tipoFlota[unidadObj.tipo]||unidadObj.tipo}/></label></div>{requiereAutorizacion&&<label className="dx-justification"><span>Justificación obligatoria para pedidos sin pago</span><textarea value={justificacion} onChange={e=>setJustificacion(e.target.value)} placeholder="Ej. Despacho exonerado autorizado mediante oficio..."/><small>{tipo==="NORMAL"?"Selecciona una modalidad autorizada distinta de Normal.":justificacion.trim().length<8?"Escribe una justificación de al menos 8 caracteres.":"Autorización documentada para esta demostración."}</small></label>}<div className="dx-driver-card"><div><UserRound size={17}/><span>Operador</span><b>{operador.nombre}</b><small>{operador.cedula}</small></div><div><CarFront size={17}/><span>Vehículo</span><b>{unidadObj.placa}</b><small>{unidadObj.etiqueta}</small></div></div><div className="dx-load"><h3>Carga de la AD personalizada</h3><div>{[10,18,27,43].map(k=><span key={k}>{k} kg<b>{counts[k]||0}</b></span>)}</div><strong>{selected.length} pedidos · {num(totalKg)} kg · {fmt(totalKg/.54,2)} L reales · {paradas.length} paradas</strong></div></>}
-      {paso===3&&<><div className="dx-wintro"><div><b>3. Revisa la AD antes de crearla</b><span>Los pedidos pasarán de Sin AD a En AD y desaparecerán de la cola disponible para otras planificaciones.</span></div></div><div className="dx-confirm"><div><span>AD</span><b>{ad}</b></div><div><span>Modalidad</span><b>{tipo}</b></div><div><span>Pedidos</span><b>{selected.length}</b><small>{sinPago.length} sin pago</small></div><div><span>Paradas</span><b>{paradas.length}</b></div><div><span>Comunas</span><b>{comunas.length}</b></div><div><span>Comunidades</span><b>{comunidades.length}</b></div><div><span>Placa</span><b>{unidadObj.placa}</b></div><div><span>Operador</span><b>{operador.nombre}</b><small>{operador.cedula}</small></div></div><div className="dx-preview"><h3>Paradas incluidas</h3>{paradas.map((p,i)=><div key={`${p.comuna}-${p.comunidad}`}><span>{i+1}. {p.comunidad} · {p.comuna}</span><b>{p.pedidos} pedidos · {p.kg} kg</b></div>)}</div>{requiereAutorizacion&&<div className="dx-custom-warning ok"><CheckCircle2 size={15}/><span>{sinPago.length} pedidos sin pago serán incluidos bajo modalidad <b>{tipo}</b>. Justificación: {justificacion}</span></div>}</>}
+      {paso===2&&<><div className="dx-wintro"><div><b>2. Asigna la logística de la AD</b><span>Distribución elige ruta, vehículo y operador. Si hay pedidos no pagados, documenta por qué se autorizan.</span></div></div><div className="dx-formgrid"><label><span>Número AD</span><input value={ad} onChange={e=>setAd(e.target.value)}/></label><label><span>Ruta / descripción</span><input value={route} onChange={e=>setRoute(e.target.value)} placeholder="Ej. Ruta especial Palavecino"/></label><label><span>Vehículo / placa</span><select value={unidad} onChange={e=>setUnidad(e.target.value)}>{UNIDADES_DISTRIBUCION.filter(u=>!u.granel).map(u=><option key={u.id} value={u.id}>{u.placa} · {u.etiqueta}</option>)}</select></label><label><span>Operador / conductor</span><select value={operadorId} onChange={e=>setOperadorId(e.target.value)}>{opsCompatibles.map(o=><option key={o.id} value={o.id}>{o.nombre} · {o.cedula}</option>)}</select></label><label><span>Modalidad del AD</span><select value={tipo} onChange={e=>setTipo(e.target.value)}><option value="NORMAL">Normal · requiere pago</option><option value="EXONERADO">Exonerado autorizado</option><option value="APOYO">Apoyo / programa especial</option><option value="INSTITUCIONAL">Institucional</option><option value="EXCEPCION">Excepción autorizada</option></select></label><label><span>Transportista</span><input readOnly value={tipoFlota[unidadObj.tipo]||unidadObj.tipo}/></label></div>{requiereAutorizacion&&<label className="dx-justification"><span>Justificación obligatoria para pedidos sin pago</span><textarea value={justificacion} onChange={e=>setJustificacion(e.target.value)} placeholder="Ej. Despacho exonerado autorizado mediante oficio..."/><small>{tipo==="NORMAL"?"Selecciona una modalidad autorizada distinta de Normal.":justificacion.trim().length<8?"Escribe una justificación de al menos 8 caracteres.":"Autorización documentada para esta demostración."}</small></label>}<div className="dx-driver-card"><div><UserRound size={17}/><span>Operador</span><b>{operador.nombre}</b><small>{operador.cedula}</small></div><div><CarFront size={17}/><span>Vehículo</span><b>{unidadObj.placa}</b><small>{unidadObj.etiqueta}</small></div></div><div className="dx-load"><h3>Carga de la AD personalizada</h3><div>{[10,18,27,43].map(k=><span key={k}>{k} kg<b>{counts[k]||0}</b></span>)}</div><strong>{selected.length} pedidos · <KgL kg={totalKg} /> · {paradas.length} paradas</strong></div></>}
+      {paso===3&&<><div className="dx-wintro"><div><b>3. Revisa la AD antes de crearla</b><span>Los pedidos pasarán de Sin AD a En AD y desaparecerán de la cola disponible para otras planificaciones.</span></div></div><div className="dx-confirm"><div><span>AD</span><b>{ad}</b></div><div><span>Modalidad</span><b>{tipo}</b></div><div><span>Pedidos</span><b>{selected.length}</b><small>{sinPago.length} sin pago</small></div><div><span>Paradas</span><b>{paradas.length}</b></div><div><span>Comunas</span><b>{comunas.length}</b></div><div><span>Comunidades</span><b>{comunidades.length}</b></div><div><span>Placa</span><b>{unidadObj.placa}</b></div><div><span>Operador</span><b>{operador.nombre}</b><small>{operador.cedula}</small></div></div><div className="dx-preview"><h3>Paradas incluidas</h3>{paradas.map((p,i)=><div key={`${p.comuna}-${p.comunidad}`}><span>{i+1}. {p.comunidad} · {p.comuna}</span><b>{p.pedidos} pedidos · <KgL kg={p.kg} /></b></div>)}</div>{requiereAutorizacion&&<div className="dx-custom-warning ok"><CheckCircle2 size={15}/><span>{sinPago.length} pedidos sin pago serán incluidos bajo modalidad <b>{tipo}</b>. Justificación: {justificacion}</span></div>}</>}
     </main>
     <footer><button className="dx-secondary" onClick={()=>paso===1?onClose():setPaso(paso-1)}>{paso===1?"Cancelar":<><ChevronLeft size={14}/>Atrás</>}</button>{paso<3?<button className="dx-primary" disabled={!selected.length||(paso===2&&!autorizacionValida)} onClick={()=>setPaso(paso+1)}>Continuar <ChevronRight size={14}/></button>:<button className="dx-primary" disabled={!selected.length||!autorizacionValida||!unidad||!operadorId} onClick={crear}><Check size={14}/>Crear AD personalizada</button>}</footer>
   </div></div>
@@ -481,8 +617,8 @@ function WizardAD({ruta,rutas,onClose,onSave}){
     <div className="dx-wsteps"><StepTab n="1" label="Pedidos" on={paso===1} done={paso>1}/><i/><StepTab n="2" label="Logística" on={paso===2} done={paso>2}/><i/><StepTab n="3" label="Confirmar AD" on={paso===3}/></div>
     <main>
       {paso===1&&<><div className="dx-wintro"><div><b>1. Selecciona los pedidos que entrarán al AD</b><span>El detalle sigue siendo individual aunque la jornada se entregue agrupada a la comunidad.</span></div><div className="dx-wcounts"><span>{base.length} pedidos</span><span>{pagados.length} pagados</span><span>{base.length-pagados.length} pendientes de pago</span></div></div><div className="dx-user-toolbar"><div className="dx-search"><Search size={14}/><input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar pedido, persona o cédula"/></div><button className="dx-secondary" onClick={()=>setSel(new Set(pagados.map(x=>x.id)))}>Seleccionar pagados</button><button className="dx-secondary" onClick={()=>setSel(new Set())}>Limpiar</button></div><UserTable rows={filtered} selected={sel} toggle={toggle}/></>}
-      {paso===2&&<><div className="dx-wintro"><div><b>2. Asigna ruta, vehículo y operador</b><span>El vehículo se identifica por placa y el operador por nombre y cédula. Esta asignación pasa directamente a Operaciones.</span></div></div><div className="dx-formgrid"><label><span>Número AD</span><input value={ad} onChange={e=>setAd(e.target.value)}/></label><label><span>Ruta</span><input value={route} onChange={e=>setRoute(e.target.value)} placeholder="Ej. 03"/></label><label><span>Vehículo / placa</span><select value={unidad} onChange={e=>setUnidad(e.target.value)}>{UNIDADES_DISTRIBUCION.filter(u=>!u.granel).map(u=><option key={u.id} value={u.id}>{u.placa} · {u.etiqueta}</option>)}</select></label><label><span>Operador / conductor</span><select value={operadorId} onChange={e=>setOperadorId(e.target.value)}>{opsCompatibles.map(o=><option key={o.id} value={o.id}>{o.nombre} · {o.cedula}</option>)}</select></label><label><span>Cédula del operador</span><input readOnly value={operador.cedula}/></label><label><span>Transportista</span><input readOnly value={tipoFlota[unidadObj.tipo]||unidadObj.tipo}/></label></div><div className="dx-driver-card"><div><UserRound size={17}/><span>Operador asignado</span><b>{operador.nombre}</b><small>{operador.cedula}</small></div><div><CarFront size={17}/><span>Vehículo</span><b>{unidadObj.placa}</b><small>{unidadObj.etiqueta}</small></div></div><div className="dx-load"><h3>Carga calculada automáticamente</h3><div>{[10,18,27,43].map(k=><span key={k}>{k} kg<b>{counts[k]||0}</b></span>)}</div><strong>{selected.length} pedidos · {num(kg)} kg · {fmt(kg/.54,2)} L reales</strong></div></>}
-      {paso===3&&<><div className="dx-wintro"><div><b>3. Confirma la creación del AD</b><span>Al confirmar, todos los pedidos seleccionados quedarán vinculados al AD y la ruta aparecerá al operador asignado.</span></div></div><div className="dx-confirm"><div><span>AD</span><b>{ad}</b></div><div><span>Comuna</span><b>{ruta.comuna}</b></div><div><span>Comunidad</span><b>{ruta.comunidad}</b></div><div><span>Ruta</span><b>{route||"POR DEFINIR"}</b></div><div><span>Placa</span><b>{unidadObj.placa}</b></div><div><span>Operador</span><b>{operador.nombre}</b><small>{operador.cedula}</small></div><div><span>Pedidos incluidos</span><b>{selected.length}</b></div><div><span>Carga</span><b>{num(kg)} kg · {fmt(kg/.54,2)} L</b></div></div><div className="dx-preview"><h3>Distribución por cilindro</h3>{[10,18,27,43].map(k=><div key={k}><span>{k} kg</span><b>{counts[k]||0}</b></div>)}</div></>}
+      {paso===2&&<><div className="dx-wintro"><div><b>2. Asigna ruta, vehículo y operador</b><span>El vehículo se identifica por placa y el operador por nombre y cédula. Esta asignación pasa directamente a Operaciones.</span></div></div><div className="dx-formgrid"><label><span>Número AD</span><input value={ad} onChange={e=>setAd(e.target.value)}/></label><label><span>Ruta</span><input value={route} onChange={e=>setRoute(e.target.value)} placeholder="Ej. 03"/></label><label><span>Vehículo / placa</span><select value={unidad} onChange={e=>setUnidad(e.target.value)}>{UNIDADES_DISTRIBUCION.filter(u=>!u.granel).map(u=><option key={u.id} value={u.id}>{u.placa} · {u.etiqueta}</option>)}</select></label><label><span>Operador / conductor</span><select value={operadorId} onChange={e=>setOperadorId(e.target.value)}>{opsCompatibles.map(o=><option key={o.id} value={o.id}>{o.nombre} · {o.cedula}</option>)}</select></label><label><span>Cédula del operador</span><input readOnly value={operador.cedula}/></label><label><span>Transportista</span><input readOnly value={tipoFlota[unidadObj.tipo]||unidadObj.tipo}/></label></div><div className="dx-driver-card"><div><UserRound size={17}/><span>Operador asignado</span><b>{operador.nombre}</b><small>{operador.cedula}</small></div><div><CarFront size={17}/><span>Vehículo</span><b>{unidadObj.placa}</b><small>{unidadObj.etiqueta}</small></div></div><div className="dx-load"><h3>Carga calculada automáticamente</h3><div>{[10,18,27,43].map(k=><span key={k}>{k} kg<b>{counts[k]||0}</b></span>)}</div><strong>{selected.length} pedidos · <KgL kg={kg} /></strong></div></>}
+      {paso===3&&<><div className="dx-wintro"><div><b>3. Confirma la creación del AD</b><span>Al confirmar, todos los pedidos seleccionados quedarán vinculados al AD y la ruta aparecerá al operador asignado.</span></div></div><div className="dx-confirm"><div><span>AD</span><b>{ad}</b></div><div><span>Comuna</span><b>{ruta.comuna}</b></div><div><span>Comunidad</span><b>{ruta.comunidad}</b></div><div><span>Ruta</span><b>{route||"POR DEFINIR"}</b></div><div><span>Placa</span><b>{unidadObj.placa}</b></div><div><span>Operador</span><b>{operador.nombre}</b><small>{operador.cedula}</small></div><div><span>Pedidos incluidos</span><b>{selected.length}</b></div><div><span>Carga</span><b><KgL kg={kg} /></b></div></div><div className="dx-preview"><h3>Distribución por cilindro</h3>{[10,18,27,43].map(k=><div key={k}><span>{k} kg</span><b>{counts[k]||0}</b></div>)}</div></>}
     </main>
     <footer><button className="dx-secondary" onClick={()=>paso===1?onClose():setPaso(paso-1)}>{paso===1?"Cancelar":<><ChevronLeft size={14}/>Atrás</>}</button>{paso<3?<button className="dx-primary" disabled={paso===1&&!selected.length} onClick={()=>setPaso(paso+1)}>Continuar <ChevronRight size={14}/></button>:<button className="dx-primary" disabled={!operadorId||!unidad} onClick={crear}><Check size={14}/>Crear y asignar AD</button>}</footer>
   </div></div>
@@ -512,11 +648,36 @@ function Progress({value,total}){return <div className="dx-progress"><i style={{
 function Empty({text}){return <div className="dx-empty"><CircleDot size={15}/>{text}</div>}
 function Bars({rows,total}){return <div className="dx-bars">{rows.map(([l,v,t])=><div key={l}><div><span>{l}</span><b>{num(v)} · {pct(v,total)}</b></div><div className="dx-bar"><i className={t} style={{width:`${Math.min(100,total?v/total*100:0)}%`}}/></div></div>)}</div>}
 function siguienteAD(rutas){let m=76000;rutas.forEach(r=>{String(r.ad||"").split(/\D+/).forEach(x=>{const n=Number(x);if(n>m&&n<999999)m=n})});return m+1}
-const titulo=v=>({inicio:"Resumen de distribución",pedidos:"Pedidos en tiempo real",planificar:"Planificar AD",ads:"AD del día",agenda:"Agenda diaria",carga:"Preparación y carga",replanificar:"Replanificar AD",flota:"Flota y operadores",incidencias:"Incidencias",comunas:"Comunas y usuarios",reportes:"Reportes de distribución"}[v]);
-const subtitulo=v=>({inicio:"Lo esencial de la jornada en una sola vista.",pedidos:"Bandeja individual de solicitudes recibidas desde el sistema, antes y después de entrar en un AD.",planificar:"Convierte pedidos pagados de una comunidad en una ruta lista para despacho.",ads:"Consulta las AD creadas, su carga, ruta, placa, operador y estado.",agenda:"Orden cronológico de las jornadas, unidades y comunidades del día.",carga:"Compara lo planificado con lo cargado físicamente antes de liberar el vehículo.",replanificar:"Mueve, reasigna, divide o reprograma una AD dejando visible la bitácora del cambio.",flota:"Disponibilidad de vehículos y operadores con placa, cédula y asignación actual.",incidencias:"Control visual de diferencias de carga, flota y entregas parciales.",comunas:"Revisa el detalle individual que soporta cada entrega comunal.",reportes:"Métricas de ejecución, cobertura y flota generadas directamente dentro del sistema."}[v]);
+const titulo=v=>({inicio:"Resumen de distribución",pedidos:"Pedidos en tiempo real",ads:"AD del día",carga:"Preparación y carga",ejecucion:"Ejecución y cierre de AD",flota:"Flota y operadores",planta:"Movimiento de planta",granel:"Granel",movil:"Planta móvil",comunas:"Comunas y usuarios"}[v]);
+const subtitulo=v=>({inicio:"Lo esencial de la jornada en una sola vista.",pedidos:"Bandeja individual de solicitudes recibidas desde el sistema, antes y después de entrar en un AD.",planificar:"Convierte pedidos pagados de una comunidad en una ruta lista para despacho.",ads:"Planificar, consultar, replanificar e imprimir las AD. Cada una abre a su listado de personas; antes de salir, lo único que decide quién entra es el pago.",agenda:"Orden cronológico de las jornadas, unidades y comunidades del día.",carga:"Compara lo planificado con lo cargado físicamente antes de liberar el vehículo.",ejecucion:"El conductor ejecuta y reporta; Distribución confirma las incidencias y firma el cierre que factura, descuenta inventario y abona.",replanificar:"Mueve, reasigna, divide o reprograma una AD dejando visible la bitácora del cambio.",flota:"Disponibilidad de vehículos y operadores con placa, cédula y asignación actual.",planta:"Registro del operador de planta: todo el gas que entra y sale, en cilindros y en gandolas.",granel:"Clientes con tanque propio, niveles de reposición y histórico de despachos medidos en sitio.",movil:"Jornadas de llenado en calle, atención a usuarios sin código y arqueo de la caja.",incidencias:"Control visual de diferencias de carga, flota y entregas parciales.",comunas:"Revisa el detalle individual que soporta cada entrega comunal.",reportes:"Métricas de ejecución, cobertura y flota generadas directamente dentro del sistema."}[v]);
 
 function Estilos(){return <style>{`
-.dx{min-height:100vh;background:#F5F7F9;color:#17232C;font-family:Inter,Segoe UI,system-ui,sans-serif;display:grid;grid-template-columns:250px 1fr}.dx-side{background:#111A22;color:#EAF0F4;padding:22px 16px;display:flex;flex-direction:column;gap:16px}.dx-brand{display:flex;align-items:center;gap:10px}.dx-brand img{width:68px;background:#fff;border-radius:9px;padding:5px}.dx-brand b{display:block;font-size:18px}.dx-brand span{font-size:11px;color:#9EADB9}.dx-side>p{font-size:12px;line-height:1.55;color:#B9C4CD;margin:0}.dx-side nav{display:flex;flex-direction:column;gap:7px}.dx-side nav button{border:0;background:transparent;color:#BDC7D0;border-radius:10px;padding:11px 10px;display:flex;align-items:center;gap:9px;text-align:left;font-size:12px;font-weight:700;cursor:pointer}.dx-side nav button.on{background:#EAF4EE;color:#174B32}.dx-side nav em{margin-left:auto;background:#D88B22;color:white;font-style:normal;font-size:10px;border-radius:999px;padding:2px 6px}.dx-rule{margin-top:auto;border-top:1px solid #26343F;padding-top:14px}.dx-rule small{display:block;color:#82929F;font-size:10px}.dx-rule b{display:block;font-size:13px;margin:4px 0}.dx-rule span{font-size:11px;color:#AAB6C0;line-height:1.45;display:block}.dx-main{padding:24px 26px 34px}.dx-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}.dx-head>div>span{font-size:10px;font-weight:800;color:#26704C;background:#EAF4EE;padding:6px 9px;border-radius:999px}.dx-head h1{font-size:27px;margin:10px 0 5px}.dx-head p{margin:0;color:#687681;font-size:13px}.dx-date{background:white;border:1px solid #DDE4EA;border-radius:10px;padding:9px 11px;display:flex;gap:7px;align-items:center;font-size:12px}.dx-content{display:flex;flex-direction:column;gap:16px}.dx-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.dx-kpi,.dx-card{background:white;border:1px solid #E0E6EB;border-radius:16px;box-shadow:0 5px 16px rgba(20,30,40,.035)}.dx-kpi{padding:14px;display:flex;flex-direction:column;gap:6px}.dx-kpi>span{color:#697784;font-size:11px}.dx-kpi>b{font-size:25px}.dx-kpi>small{font-size:11px;color:#85929C}.dx-grid{display:grid;gap:16px}.dx-grid.two{grid-template-columns:1fr 1fr}.dx-card{padding:16px}.dx-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px}.dx-card h2{font-size:16px;margin:0 0 4px}.dx-card-head p{font-size:12px;color:#72808C;margin:0;line-height:1.45}.dx-primary,.dx-secondary,.dx-link,.dx-iconbtn{border:0;border-radius:10px;font-weight:800;display:inline-flex;align-items:center;gap:6px;cursor:pointer}.dx-primary{background:#17623F;color:#fff;padding:9px 12px}.dx-secondary{background:#EEF2F5;color:#2F3C46;padding:9px 12px}.dx-link{background:transparent;color:#17623F;padding:2px}.dx-iconbtn{background:#EEF2F5;color:#34434E;width:32px;height:32px;justify-content:center}.dx-primary:disabled{opacity:.45;cursor:not-allowed}.dx-list,.dx-community-list{display:flex;flex-direction:column;gap:9px}.dx-list-row,.dx-community{border:1px solid #E5EAEE;background:#FBFCFD;border-radius:12px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:12px}.dx-list-row b,.dx-community b{display:block;font-size:13px}.dx-list-row span,.dx-community span{display:block;font-size:11px;color:#74818C;margin-top:3px}.dx-status{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.dx-stat{padding:11px;border-radius:11px;background:#F1F4F6}.dx-stat.amber{background:#FFF3E5}.dx-stat.blue{background:#EAF1FA}.dx-stat.green{background:#EAF5EE}.dx-stat span{font-size:10px;color:#667582}.dx-stat b{display:block;font-size:20px;margin-top:4px}.dx-progressbox{margin-top:13px}.dx-progressbox>div:first-child{display:flex;justify-content:space-between;font-size:11px}.dx-progressbox small{font-size:10px;color:#7C8994}.dx-progress{height:8px;background:#EAF0ED;border-radius:99px;overflow:hidden;margin:8px 0}.dx-progress i{display:block;height:100%;background:#28A167;border-radius:99px}.dx-ad-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.dx-ad-card{border:1px solid #E4EAEE;background:#FBFCFD;border-radius:12px;padding:12px;text-align:left;cursor:pointer}.dx-ad-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.dx-ad-top>span{font-size:10px;color:#75838F}.dx-ad-card>b{font-size:13px}.dx-ad-card p{font-size:11px;color:#6E7B87;margin:4px 0 10px;line-height:1.35}.dx-ad-card>div:last-child{display:flex;justify-content:space-between;color:#65737F;font-size:10px}.dx-tag{display:inline-flex;border-radius:999px;padding:5px 8px;font-size:9px;font-weight:800}.dx-tag.green{background:#E7F4EC;color:#1C6945}.dx-tag.amber{background:#FFF1E0;color:#A66A16}.dx-tag.blue{background:#E8F0FB;color:#2E67AE}.dx-tag.red{background:#FBE9E9;color:#A13D3D}.dx-tag.slate{background:#EEF2F5;color:#5D6974}.dx-toolbar{display:flex;justify-content:flex-end}.dx-search{background:white;border:1px solid #DBE3E9;border-radius:10px;padding:9px 10px;display:flex;align-items:center;gap:7px;min-width:290px}.dx-search input{border:0;outline:none;width:100%;font:inherit;font-size:12px}.dx-community{display:grid;grid-template-columns:1.4fr 1fr auto}.dx-community-main{display:flex;gap:10px;align-items:flex-start}.dx-community-counts{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.dx-community-counts>div{background:#F2F5F7;padding:7px;border-radius:8px}.dx-community-counts span{font-size:9px!important;margin:0!important}.dx-community-counts b{font-size:13px;margin-top:2px}.dx-table-wrap{border:1px solid #E3E9ED;border-radius:12px;overflow:auto}.dx-table-wrap.users{max-height:430px}.dx-table-wrap.users.compact{max-height:365px}.dx-table{width:100%;border-collapse:collapse;font-size:11px}.dx-table thead{position:sticky;top:0;background:#F4F6F8;z-index:1}.dx-table th,.dx-table td{padding:9px 10px;border-bottom:1px solid #E9EDF0;text-align:left;white-space:nowrap}.dx-table th{font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#697783}.dx-table td>b{display:block;font-size:11px}.dx-table td>span{display:block;font-size:10px;color:#77848F;margin-top:2px}.dx-table tr.muted{background:#FAFAFA;color:#89949C}.dx-filters{display:grid;grid-template-columns:1fr 1fr .7fr;gap:10px;margin-bottom:12px}.dx-filters label span,.dx-formgrid label span{font-size:10px;color:#697783;display:block;margin-bottom:5px}.dx-filters select,.dx-formgrid select,.dx-formgrid input{width:100%;box-sizing:border-box;border:1px solid #DCE4E9;border-radius:9px;padding:9px;font:inherit;font-size:11px;background:white}.dx-summary-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0 12px}.dx-summary-strip>div{background:#F4F7F8;padding:10px;border-radius:10px}.dx-summary-strip span{font-size:9px;color:#687682;display:block}.dx-summary-strip b{font-size:14px;display:block;margin-top:3px}.dx-bars{display:flex;flex-direction:column;gap:12px}.dx-bars>div>div:first-child{display:flex;justify-content:space-between;font-size:11px}.dx-bar{height:8px;background:#EDF1F4;border-radius:99px;overflow:hidden;margin-top:6px}.dx-bar i{height:100%;display:block;background:#8E9CAA}.dx-bar i.green{background:#2DA268}.dx-bar i.blue{background:#3B77C7}.dx-bar i.amber{background:#D78B20}.dx-report-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}.dx-report-grid>div{background:#F4F7F8;padding:11px;border-radius:10px}.dx-report-grid span{display:block;font-size:10px;color:#6E7C87}.dx-report-grid b{display:block;font-size:18px;margin-top:4px}.dx-empty{padding:15px;border:1px dashed #D5DEE5;border-radius:10px;color:#6C7985;font-size:11px;display:flex;gap:6px;align-items:center}.dx-modal-bg{position:fixed;inset:0;background:rgba(15,22,28,.48);display:grid;place-items:center;padding:18px;z-index:50}.dx-wizard,.dx-detail{width:min(1050px,97vw);max-height:94vh;background:white;border-radius:18px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 25px 70px rgba(0,0,0,.2)}.dx-wizard>header,.dx-detail>header{padding:16px 18px;border-bottom:1px solid #E6EBEF;display:flex;justify-content:space-between}.dx-wizard header small,.dx-detail header small{font-size:9px;color:#6D7A85;font-weight:800}.dx-wizard h2,.dx-detail h2{font-size:19px;margin:3px 0}.dx-wizard header p,.dx-detail header p{font-size:11px;color:#6D7A85;margin:0}.dx-wizard header button,.dx-detail header button{border:1px solid #DDE4E9;background:white;width:32px;height:32px;border-radius:9px}.dx-wsteps{padding:12px 18px;background:#FAFBFC;display:flex;align-items:center;justify-content:center;gap:8px;border-bottom:1px solid #E7ECEF}.dx-wsteps>div{display:flex;align-items:center;gap:6px;color:#84909A;font-size:10px}.dx-wsteps>div b{width:23px;height:23px;border-radius:50%;background:#E9EDF0;display:grid;place-items:center}.dx-wsteps>div.on,.dx-wsteps>div.done{color:#17623F;font-weight:800}.dx-wsteps>div.on b,.dx-wsteps>div.done b{background:#DFF0E6;color:#17623F}.dx-wsteps>i{width:42px;height:1px;background:#D9E0E5}.dx-wizard>main,.dx-detail>main{padding:16px 18px;overflow:auto;flex:1}.dx-wintro{display:flex;justify-content:space-between;gap:10px;margin-bottom:12px}.dx-wintro b{display:block;font-size:13px}.dx-wintro span{display:block;font-size:11px;color:#6F7C87;margin-top:3px}.dx-wcounts{display:flex;gap:6px}.dx-wcounts span{background:#F1F4F6;padding:6px 8px;border-radius:999px;font-size:9px;margin:0}.dx-user-toolbar{display:flex;gap:7px;align-items:center;margin-bottom:9px}.dx-user-toolbar .dx-search{margin-right:auto}.dx-wizard>footer,.dx-detail>footer{padding:12px 18px;border-top:1px solid #E6EBEF;display:flex;justify-content:space-between}.dx-formgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:11px}.dx-load{margin-top:14px;border:1px solid #DDE9E2;background:#F4F9F6;border-radius:12px;padding:12px}.dx-load h3,.dx-preview h3,.dx-detail main h3{font-size:12px;margin:0 0 9px}.dx-load>div{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.dx-load span{background:white;border-radius:8px;padding:7px;font-size:9px}.dx-load span b{font-size:14px;display:block;margin-top:2px}.dx-load strong{display:block;font-size:11px;margin-top:9px}.dx-confirm{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.dx-confirm>div{background:#F4F7F8;padding:10px;border-radius:10px}.dx-confirm span{display:block;font-size:9px;color:#697783}.dx-confirm b{display:block;font-size:12px;margin-top:3px}.dx-preview{margin-top:12px}.dx-preview>div{display:flex;justify-content:space-between;border-bottom:1px solid #E8EDF0;padding:7px 0;font-size:11px}.dx-detail{width:min(900px,96vw)}.dx-toast{position:fixed;right:18px;bottom:18px;background:#15222A;color:white;border-radius:10px;padding:10px 12px;display:flex;gap:7px;align-items:center;font-size:11px;z-index:80}
+.dx{min-height:100vh;background:#F5F7F9;color:#17232C;font-family:Inter,Segoe UI,system-ui,sans-serif;display:grid;grid-template-columns:250px 1fr}.dx-side{background:#111A22;color:#EAF0F4;padding:22px 16px;display:flex;flex-direction:column;gap:16px}.dx-brand{display:flex;align-items:center;gap:10px}.dx-brand img{width:68px;background:#fff;border-radius:9px;padding:5px}.dx-brand b{display:block;font-size:18px}.dx-brand span{font-size:11px;color:#9EADB9}.dx-side>p{font-size:12px;line-height:1.55;color:#B9C4CD;margin:0}.dx-side nav{display:flex;flex-direction:column;gap:7px}.dx-side nav button{border:0;background:transparent;color:#BDC7D0;border-radius:10px;padding:11px 10px;display:flex;align-items:center;gap:9px;text-align:left;font-size:12px;font-weight:700;cursor:pointer}.dx-side nav button.on{background:#EAF4EE;color:#174B32}.dx-side nav em{margin-left:auto;background:#D88B22;color:white;font-style:normal;font-size:10px;border-radius:999px;padding:2px 6px}.dx-rule{margin-top:auto;border-top:1px solid #26343F;padding-top:14px}.dx-rule small{display:block;color:#82929F;font-size:10px}.dx-rule b{display:block;font-size:13px;margin:4px 0}.dx-rule span{font-size:11px;color:#AAB6C0;line-height:1.45;display:block}.dx-main{padding:24px 26px 34px;min-width:0;overflow-x:hidden}.dx-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}.dx-head>div>span{font-size:10px;font-weight:800;color:#26704C;background:#EAF4EE;padding:6px 9px;border-radius:999px}.dx-head h1{font-size:27px;margin:10px 0 5px}.dx-head p{margin:0;color:#687681;font-size:13px}.dx-date{background:white;border:1px solid #DDE4EA;border-radius:10px;padding:9px 11px;display:flex;gap:7px;align-items:center;font-size:12px}.dx-content{display:flex;flex-direction:column;gap:16px}.dx-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}.dx-kpi,.dx-card{background:white;border:1px solid #E0E6EB;border-radius:16px;box-shadow:0 5px 16px rgba(20,30,40,.035)}.dx-kpi{padding:14px;display:flex;flex-direction:column;gap:6px}.dx-kpi>span{color:#697784;font-size:11px}.dx-kpi>b{font-size:25px}.dx-kpi>small{font-size:11px;color:#85929C}.dx-grid{display:grid;gap:16px}.dx-grid.two{grid-template-columns:1fr 1fr}.dx-card{padding:16px}.dx-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px}.dx-card h2{font-size:16px;margin:0 0 4px}.dx-card-head p{font-size:12px;color:#72808C;margin:0;line-height:1.45}.dx-primary,.dx-secondary,.dx-link,.dx-iconbtn{border:0;border-radius:10px;font-weight:800;display:inline-flex;align-items:center;gap:6px;cursor:pointer}.dx-primary{background:#17623F;color:#fff;padding:9px 12px}.dx-secondary{background:#EEF2F5;color:#2F3C46;padding:9px 12px}.dx-link{background:transparent;color:#17623F;padding:2px}.dx-iconbtn{background:#EEF2F5;color:#34434E;width:32px;height:32px;justify-content:center}.dx-primary:disabled{opacity:.45;cursor:not-allowed}.dx-list,.dx-community-list{display:flex;flex-direction:column;gap:9px}.dx-list-row,.dx-community{border:1px solid #E5EAEE;background:#FBFCFD;border-radius:12px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:12px}.dx-list-row b,.dx-community b{display:block;font-size:13px}.dx-list-row span,.dx-community span{display:block;font-size:11px;color:#74818C;margin-top:3px}.dx-status{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.dx-stat{padding:11px;border-radius:11px;background:#F1F4F6}.dx-stat.amber{background:#FFF3E5}.dx-stat.blue{background:#EAF1FA}.dx-stat.green{background:#EAF5EE}.dx-stat span{font-size:10px;color:#667582}.dx-stat b{display:block;font-size:20px;margin-top:4px}.dx-progressbox{margin-top:13px}.dx-progressbox>div:first-child{display:flex;justify-content:space-between;font-size:11px}.dx-progressbox small{font-size:10px;color:#7C8994}.dx-progress{height:8px;background:#EAF0ED;border-radius:99px;overflow:hidden;margin:8px 0}.dx-progress i{display:block;height:100%;background:#28A167;border-radius:99px}.dx-ad-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.dx-ad-card{border:1px solid #E4EAEE;background:#FBFCFD;border-radius:12px;padding:12px;text-align:left;cursor:pointer}.dx-ad-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.dx-ad-top>span{font-size:10px;color:#75838F}.dx-ad-card>b{font-size:13px}.dx-ad-card p{font-size:11px;color:#6E7B87;margin:4px 0 10px;line-height:1.35}.dx-ad-card>div:last-child{display:flex;justify-content:space-between;color:#65737F;font-size:10px}.dx-tag{display:inline-flex;border-radius:999px;padding:5px 8px;font-size:9px;font-weight:800}.dx-tag.green{background:#E7F4EC;color:#1C6945}.dx-tag.amber{background:#FFF1E0;color:#A66A16}.dx-tag.blue{background:#E8F0FB;color:#2E67AE}.dx-tag.red{background:#FBE9E9;color:#A13D3D}.dx-tag.slate{background:#EEF2F5;color:#5D6974}.dx-toolbar{display:flex;justify-content:flex-end}.dx-search{background:white;border:1px solid #DBE3E9;border-radius:10px;padding:9px 10px;display:flex;align-items:center;gap:7px;min-width:290px}.dx-search input{border:0;outline:none;width:100%;font:inherit;font-size:12px}.dx-community{display:grid;grid-template-columns:1.4fr 1fr auto}.dx-community-main{display:flex;gap:10px;align-items:flex-start}.dx-community-counts{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.dx-community-counts>div{background:#F2F5F7;padding:7px;border-radius:8px}.dx-community-counts span{font-size:9px!important;margin:0!important}.dx-community-counts b{font-size:13px;margin-top:2px}.dx-table-wrap{border:1px solid #E3E9ED;border-radius:12px;overflow:auto}.dx-table-wrap.users{max-height:430px}.dx-table-wrap.users.compact{max-height:365px}.dx-table{width:100%;border-collapse:collapse;font-size:11px}.dx-table thead{position:sticky;top:0;background:#F4F6F8;z-index:1}.dx-table th,.dx-table td{padding:9px 10px;border-bottom:1px solid #E9EDF0;text-align:left;white-space:nowrap}.dx-table th{font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#697783}.dx-table td>b{display:block;font-size:11px}.dx-table td>span{display:block;font-size:10px;color:#77848F;margin-top:2px}.dx-table tr.muted{background:#FAFAFA;color:#89949C}.dx-filters{display:grid;grid-template-columns:1fr 1fr .7fr;gap:10px;margin-bottom:12px}.dx-filters label span,.dx-formgrid label span{font-size:10px;color:#697783;display:block;margin-bottom:5px}.dx-filters select,.dx-formgrid select,.dx-formgrid input{width:100%;box-sizing:border-box;border:1px solid #DCE4E9;border-radius:9px;padding:9px;font:inherit;font-size:11px;background:white}.dx-summary-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0 12px}.dx-summary-strip>div{background:#F4F7F8;padding:10px;border-radius:10px}.dx-summary-strip span{font-size:9px;color:#687682;display:block}.dx-summary-strip b{font-size:14px;display:block;margin-top:3px}.dx-bars{display:flex;flex-direction:column;gap:12px}.dx-bars>div>div:first-child{display:flex;justify-content:space-between;font-size:11px}.dx-bar{height:8px;background:#EDF1F4;border-radius:99px;overflow:hidden;margin-top:6px}.dx-bar i{height:100%;display:block;background:#8E9CAA}.dx-bar i.green{background:#2DA268}.dx-bar i.blue{background:#3B77C7}.dx-bar i.amber{background:#D78B20}.dx-report-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}.dx-report-grid>div{background:#F4F7F8;padding:11px;border-radius:10px}.dx-report-grid span{display:block;font-size:10px;color:#6E7C87}.dx-report-grid b{display:block;font-size:18px;margin-top:4px}.dx-empty{padding:15px;border:1px dashed #D5DEE5;border-radius:10px;color:#6C7985;font-size:11px;display:flex;gap:6px;align-items:center}.dx-modal-bg{position:fixed;inset:0;background:rgba(15,22,28,.48);display:grid;place-items:center;padding:18px;z-index:50}.dx-wizard,.dx-detail{width:min(1050px,97vw);max-height:94vh;background:white;border-radius:18px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 25px 70px rgba(0,0,0,.2)}.dx-wizard>header,.dx-detail>header{padding:16px 18px;border-bottom:1px solid #E6EBEF;display:flex;justify-content:space-between}.dx-wizard header small,.dx-detail header small{font-size:9px;color:#6D7A85;font-weight:800}.dx-wizard h2,.dx-detail h2{font-size:19px;margin:3px 0}.dx-wizard header p,.dx-detail header p{font-size:11px;color:#6D7A85;margin:0}.dx-wizard header button,.dx-detail header button{border:1px solid #DDE4E9;background:white;width:32px;height:32px;border-radius:9px}.dx-wsteps{padding:12px 18px;background:#FAFBFC;display:flex;align-items:center;justify-content:center;gap:8px;border-bottom:1px solid #E7ECEF}.dx-wsteps>div{display:flex;align-items:center;gap:6px;color:#84909A;font-size:10px}.dx-wsteps>div b{width:23px;height:23px;border-radius:50%;background:#E9EDF0;display:grid;place-items:center}.dx-wsteps>div.on,.dx-wsteps>div.done{color:#17623F;font-weight:800}.dx-wsteps>div.on b,.dx-wsteps>div.done b{background:#DFF0E6;color:#17623F}.dx-wsteps>i{width:42px;height:1px;background:#D9E0E5}.dx-wizard>main,.dx-detail>main{padding:16px 18px;overflow:auto;flex:1}.dx-wintro{display:flex;justify-content:space-between;gap:10px;margin-bottom:12px}.dx-wintro b{display:block;font-size:13px}.dx-wintro span{display:block;font-size:11px;color:#6F7C87;margin-top:3px}.dx-wcounts{display:flex;gap:6px}.dx-wcounts span{background:#F1F4F6;padding:6px 8px;border-radius:999px;font-size:9px;margin:0}.dx-user-toolbar{display:flex;gap:7px;align-items:center;margin-bottom:9px}.dx-user-toolbar .dx-search{margin-right:auto}.dx-wizard>footer,.dx-detail>footer{padding:12px 18px;border-top:1px solid #E6EBEF;display:flex;justify-content:space-between}.dx-formgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:11px}.dx-load{margin-top:14px;border:1px solid #DDE9E2;background:#F4F9F6;border-radius:12px;padding:12px}.dx-load h3,.dx-preview h3,.dx-detail main h3{font-size:12px;margin:0 0 9px}.dx-load>div{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.dx-load span{background:white;border-radius:8px;padding:7px;font-size:9px}.dx-load span b{font-size:14px;display:block;margin-top:2px}.dx-load strong{display:block;font-size:11px;margin-top:9px}.dx-confirm{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.dx-confirm>div{background:#F4F7F8;padding:10px;border-radius:10px}.dx-confirm span{display:block;font-size:9px;color:#697783}.dx-confirm b{display:block;font-size:12px;margin-top:3px}.dx-preview{margin-top:12px}.dx-preview>div{display:flex;justify-content:space-between;border-bottom:1px solid #E8EDF0;padding:7px 0;font-size:11px}.dx-detail{width:min(900px,96vw)}.dx-toast{position:fixed;right:18px;bottom:18px;background:#15222A;color:white;border-radius:10px;padding:10px 12px;display:flex;gap:7px;align-items:center;font-size:11px;z-index:80}
+.dx-fuentes-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:11px}
+.dx-fuente{border:1px solid #E0E6EB;border-left-width:4px;border-radius:13px;padding:14px;background:#FBFCFD;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:3px}
+.dx-fuente:hover{background:#F5F8F9}
+.dx-fuente>span{font-size:8.5px;font-weight:800;letter-spacing:.06em;color:#7A8791}
+.dx-fuente>b{font-size:25px;margin:4px 0 0}
+.dx-fuente>em{font-style:normal;font-size:11px;color:#4B5A66}
+.dx-fuente>small{font-size:10px;color:#7C8892;margin-top:4px;line-height:1.4}
+.dx-fuente.com{border-left-color:#2D65B0}.dx-fuente.com>b{color:#2D65B0}
+.dx-fuente.ope{border-left-color:#1C7A50}.dx-fuente.ope>b{color:#1C7A50}
+.dx-fuente.flo{border-left-color:#A2701A}.dx-fuente.flo>b{color:#A2701A}
+.dx-cobertura{margin-top:12px;border-radius:12px;padding:12px 14px;background:#F5F8F9;border:1px solid #E4EAEE}
+.dx-cobertura>div:first-child{display:flex;justify-content:space-between;align-items:baseline}
+.dx-cobertura span{font-size:11px;color:#5D6B76}
+.dx-cobertura b{font-size:18px}
+.dx-cobertura small{display:block;font-size:10px;color:#7C8892;margin-top:6px;line-height:1.45}
+.dx-cob-barra{height:9px;background:#E7EDF0;border-radius:99px;overflow:hidden;margin-top:8px}
+.dx-cob-barra i{display:block;height:100%;border-radius:99px;background:#2E9963}
+.dx-cobertura.medio .dx-cob-barra i{background:#D08A24}.dx-cobertura.medio b{color:#A2701A}
+.dx-cobertura.bajo .dx-cob-barra i{background:#B4571F}.dx-cobertura.bajo b{color:#B4571F}
+.dx-cobertura.ok b{color:#1C7A50}
+.dx-flota-alerta{display:flex;gap:9px;align-items:flex-start;margin-top:11px;background:#FFF6E7;border:1px solid #EED8B2;color:#82561D;border-radius:11px;padding:11px}
+.dx-flota-alerta>div>b,.dx-flota-alerta>div>span{display:block}
+.dx-flota-alerta b{font-size:11px;margin-bottom:3px}
+.dx-flota-alerta span{font-size:10px;line-height:1.45}
+@media(max-width:1000px){.dx-fuentes-grid{grid-template-columns:1fr}}
 .dx-livebar{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#F0F7F3;border:1px solid #D6E8DD;border-radius:12px;padding:11px 13px}.dx-livebar>div{display:flex;align-items:center;gap:8px;color:#285E43}.dx-livebar b{font-size:12px}.dx-livebar span{font-size:11px;color:#607267}.dx-kpis.orders{grid-template-columns:repeat(4,1fr)}.dx-orders-filters{display:grid;grid-template-columns:2fr repeat(4,minmax(130px,1fr));gap:8px;margin-bottom:12px;align-items:end}.dx-search.wide{min-width:0}.dx-filter-select span{display:block;font-size:9px;color:#687682;margin-bottom:4px}.dx-filter-select select{width:100%;border:1px solid #DBE3E9;border-radius:9px;background:white;padding:9px 8px;font:inherit;font-size:10px;color:#30404B}.dx-clear{border:1px solid #DDE4E9;background:white;color:#4D5B66;border-radius:9px;padding:9px;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;cursor:pointer}.orders-table{max-height:570px}.dx-pagination{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;font-size:10px;color:#6D7A85}.dx-pagination>div{display:flex;gap:6px}.dx-lifecycle{display:flex;align-items:center;gap:6px;overflow:auto;padding:10px 0 14px;margin-bottom:4px}.dx-lifecycle span{white-space:nowrap;border:1px solid #DFE7E3;background:#F7FAF8;color:#385347;border-radius:999px;padding:6px 9px;font-size:8.5px;font-weight:800}.dx-lifecycle i{font-style:normal;color:#A1ADA7;font-size:11px}.dx-driver-card{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.dx-driver-card>div{border:1px solid #DFE7EC;background:#F8FAFB;border-radius:11px;padding:11px;display:grid;grid-template-columns:auto 1fr;column-gap:8px}.dx-driver-card svg{grid-row:1/5;color:#17623F}.dx-driver-card span{font-size:9px;color:#6A7884}.dx-driver-card b{font-size:12px;margin-top:2px}.dx-driver-card small{font-size:10px;color:#6B7984;margin-top:2px}.dx-confirm small{display:block;font-size:9px;color:#6D7B86;margin-top:2px}
 .dx-live-actions{display:flex;gap:7px;align-items:center}.dx-livebar .dx-primary{white-space:nowrap}.dx-orders-help{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}.dx-orders-help>div{background:#F7F9FA;border:1px solid #E3E9ED;border-radius:10px;padding:10px}.dx-orders-help b{display:block;font-size:10px}.dx-orders-help span{display:block;font-size:10px;color:#6C7984;line-height:1.4;margin-top:3px}.dx-selectionbar{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#F4F8F5;border:1px solid #DCE9E1;border-radius:11px;padding:9px 11px;margin-bottom:10px}.dx-selectionbar>div:first-child b{display:block;font-size:11px}.dx-selectionbar>div:first-child span{display:block;font-size:9px;color:#64736B;margin-top:2px}.dx-selectionbar>div:last-child{display:flex;gap:6px;flex-wrap:wrap}.dx-custom-warning{display:flex;gap:8px;align-items:flex-start;background:#FFF5E8;border:1px solid #F0D7B2;color:#8A5815;border-radius:10px;padding:10px;margin:8px 0 11px;font-size:10px;line-height:1.45}.dx-custom-warning.ok{background:#EDF7F1;border-color:#D3E8DA;color:#2C6545}.dx-justification{display:block;margin-top:12px}.dx-justification>span{display:block;font-size:10px;color:#697783;margin-bottom:5px}.dx-justification textarea{width:100%;min-height:70px;resize:vertical;box-sizing:border-box;border:1px solid #DCE4E9;border-radius:9px;padding:9px;font:inherit;font-size:11px}.dx-justification small{display:block;font-size:9px;color:#7A8791;margin-top:4px}.dx-wizard.custom{width:min(1180px,97vw)}
 .dx-row-plan{border:1px solid #CFE1D6;background:#EEF7F1;color:#185B3B;border-radius:8px;padding:6px 8px;font-size:9px;font-weight:800;display:inline-flex;align-items:center;gap:4px;cursor:pointer}

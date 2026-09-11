@@ -1,22 +1,48 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Home, Package, Receipt, MessageSquareWarning, User, LogOut, Plus, X,
   ChevronRight, ChevronLeft, Check, MapPin, Phone, Clock, Truck,
   CheckCircle2, HelpCircle, Copy, Info, AlertCircle, Search, ShieldCheck,
-  Bell, Landmark, Smartphone, History, CircleDashed, Zap, Users,
+  Bell, Landmark, Smartphone, History, CircleDashed, Zap, Users, Wallet,
 } from "lucide-react";
 import {
   LOGO_GASLARA, LOGO_LARA, EMPRESA, BANCOS, banco, CLIENTE_PORTAL, HOY,
   PRODUCTOS, SERVICIOS, cpt, cdtOf, comunaOf, montos, FASES, faseIdx, fase,
-  bs, num, fecha, fechaLarga, mesCorto,
+  bs, num, fecha, fechaLarga, mesCorto, fechaCorta,
+  estadoCuentaAbono, tipoAbono, aplicarSaldo, esAbonada,
 } from "./datos.jsx";
 import { VisorDocumento } from "./Documentos.jsx";
+import {
+  useFilasComuna, NAV_COMUNA, MiembrosComuna, RecepcionComuna, EntregaComuna,
+  JornadasComuna, RolComunaStyles,
+} from "./PortalRolComuna.jsx";
 
 const C = CLIENTE_PORTAL;
 const COM = comunaOf(C.comuna);
 
-export default function PortalUsuario({ solicitudes, reclamos, facturas, ciclo, crearSolicitud, crearReclamo }) {
+export default function PortalUsuario({ solicitudes, reclamos, facturas, ciclo, crearSolicitud, crearReclamo, saldos = {}, abonos = [], registrarRetiroComuna }) {
+  const saldo = Number(saldos[C.id] || 0);
+  const misAbonos = useMemo(() => estadoCuentaAbono(abonos, C.id).reverse(), [abonos]);
   const [vista, setVista] = useState("inicio");
+  /* PERMISOLOGÍA · el portal es uno solo; lo que cambia es qué puede ver quien entra.
+     Un coordinador de comuna es un usuario más —con su contrato y su bombona— que
+     además responde por el lote que su comuna recibe en custodia. Ese permiso le
+     abre un grupo de secciones; sin él, no existen. El Portal Comuna dejó de ser una
+     cara aparte el 01/09/2026 porque nunca fue un sistema distinto. */
+  const [rol, setRol] = useState("USUARIO");
+  const esComuna = rol === "COMUNA";
+  const filasComuna = useFilasComuna(solicitudes);
+  const [entregasComuna, setEntregasComuna] = useState({});
+  const [recepcionComuna, setRecepcionComuna] = useState({
+    confirmada: false, plan: 32, recibido: 30,
+    obs: "2 bombonas de 10 kg quedaron pendientes por diferencia de carga.",
+  });
+  useEffect(() => {
+    // La semilla de estados solo se arma cuando el rol se activa por primera vez.
+    if (esComuna && !Object.keys(entregasComuna).length && filasComuna.length) {
+      setEntregasComuna(Object.fromEntries(filasComuna.map((x) => [x.u.id, x.seedEstado])));
+    }
+  }, [esComuna, filasComuna]);
   const [modal, setModal] = useState(null);
   const [doc, setDoc] = useState(null);
   const [toast, setToast] = useState(null);
@@ -31,11 +57,14 @@ export default function PortalUsuario({ solicitudes, reclamos, facturas, ciclo, 
   const nav = [
     { id: "inicio", label: "Inicio", icon: Home },
     { id: "pedidos", label: "Mis pedidos", icon: Package, badge: activos.length },
+    { id: "saldo", label: "Mi saldo", icon: Wallet },
     { id: "seguimiento", label: "Seguimiento", icon: History },
     { id: "facturas", label: "Facturas", icon: Receipt },
     { id: "reclamos", label: "Reclamos", icon: MessageSquareWarning, badge: misRec.filter((r) => r.estado !== "RESUELTO").length },
     { id: "perfil", label: "Mi contrato", icon: User },
   ];
+  const navComuna = esComuna ? NAV_COMUNA : [];
+  const navTodo = [...nav, ...navComuna];
 
   const onNueva = (d) => { const n = crearSolicitud(d); setModal({ tipo: "listo", s: n }); };
   const onReclamo = (d) => { const id = crearReclamo(d); setModal(null); setVista("reclamos"); aviso(`Reclamo ${id} registrado. Respondemos en máximo 72 horas.`); };
@@ -56,12 +85,31 @@ export default function PortalUsuario({ solicitudes, reclamos, facturas, ciclo, 
             <div className="su-sub">{C.id} · Cliente: {C.tipo}</div>
           </div>
         </div>
+        {/* El selector de rol es la permisología hecha visible: en producción vendría
+            del perfil con que la persona inicia sesión, no de un desplegable. */}
+        <label className="pu-rol">
+          <span>Rol de acceso</span>
+          <select value={rol} onChange={(e) => { setRol(e.target.value); setVista("inicio"); }}>
+            <option value="USUARIO">Usuario del servicio</option>
+            <option value="COMUNA">Coordinador de comuna</option>
+          </select>
+        </label>
         <nav>
           {nav.map((n) => (
             <button key={n.id} className={`nav-b ${vista === n.id ? "on" : ""}`} onClick={() => setVista(n.id)}>
               <n.icon size={18} /><span>{n.label}</span>{n.badge > 0 && <em className="nav-badge">{n.badge}</em>}
             </button>
           ))}
+          {esComuna && (
+            <>
+              <div className="pu-nav-grupo">Mi comuna</div>
+              {NAV_COMUNA.map((n) => (
+                <button key={n.id} className={`nav-b ${vista === n.id ? "on" : ""}`} onClick={() => setVista(n.id)}>
+                  <n.icon size={18} /><span>{n.label}</span>
+                </button>
+              ))}
+            </>
+          )}
         </nav>
         <div className="side-foot">
           <button className="nav-b ghost" onClick={() => setModal("ayuda")}><HelpCircle size={18} /><span>Cómo pagar y pedir</span></button>
@@ -74,7 +122,7 @@ export default function PortalUsuario({ solicitudes, reclamos, facturas, ciclo, 
         <header className="top">
           <div>
             <div className="top-loc"><MapPin size={13} /> Barquisimeto · {fechaLarga(HOY)}</div>
-            <h1>{vista === "inicio" ? `Hola, ${C.nombre.split(" ")[0]}` : nav.find((n) => n.id === vista).label}</h1>
+            <h1>{vista === "inicio" ? `Hola, ${C.nombre.split(" ")[0]}` : (navTodo.find((n) => n.id === vista)?.label || "")}</h1>
           </div>
           <div className="top-r">
             <button className="icon-round" onClick={() => setModal("ayuda")}><Bell size={17} /></button>
@@ -83,12 +131,21 @@ export default function PortalUsuario({ solicitudes, reclamos, facturas, ciclo, 
         </header>
 
         <div className="body">
-          {vista === "inicio" && <Inicio {...{ mis, enCurso, ciclo, setModal, setVista, misFac }} />}
+          {vista === "inicio" && <Inicio {...{ mis, enCurso, ciclo, setModal, setVista, misFac, saldo }} />}
+          {vista === "saldo" && <MiSaldo saldo={saldo} movimientos={misAbonos} setModal={setModal} />}
           {vista === "pedidos" && <Pedidos mis={mis} setModal={setModal} />}
           {vista === "seguimiento" && <SeguimientoUsuario mis={mis} />}
           {vista === "facturas" && <Facturas mis={mis} misFac={misFac} setDoc={setDoc} setModal={setModal} />}
           {vista === "reclamos" && <Reclamos misRec={misRec} setModal={setModal} />}
           {vista === "perfil" && <Perfil mis={mis} ciclo={ciclo} />}
+
+          {/* Las secciones que abre el rol de comuna. Sin el permiso no se renderizan. */}
+          {esComuna && vista === "com-miembros" && <MiembrosComuna filas={filasComuna} entregas={entregasComuna} />}
+          {esComuna && vista === "com-recepcion" && <RecepcionComuna filas={filasComuna}
+            recepcion={recepcionComuna} setRecepcion={setRecepcionComuna} />}
+          {esComuna && vista === "com-entrega" && <EntregaComuna filas={filasComuna} entregas={entregasComuna}
+            setEntregas={setEntregasComuna} registrarRetiroComuna={registrarRetiroComuna} />}
+          {esComuna && vista === "com-jornadas" && <JornadasComuna />}
         </div>
 
         <footer className="pie">
@@ -110,7 +167,7 @@ export default function PortalUsuario({ solicitudes, reclamos, facturas, ciclo, 
       </nav>
       <button className="fab" onClick={() => setModal("solicitud")}><Plus size={24} strokeWidth={2.6} /></button>
 
-      {modal === "solicitud" && <Wizard onClose={() => setModal(null)} onSave={onNueva} aviso={aviso} />}
+      {modal === "solicitud" && <Wizard onClose={() => setModal(null)} onSave={onNueva} aviso={aviso} saldo={saldo} />}
       {modal === "reclamo" && <ModalReclamo mis={mis} onClose={() => setModal(null)} onSave={onReclamo} />}
       {modal === "ayuda" && <ModalAyuda onClose={() => setModal(null)} aviso={aviso} />}
       {modal?.tipo === "detalle" && <DetallePedido s={modal.s} onClose={() => setModal(null)} setDoc={setDoc} facturas={facturas} />}
@@ -124,12 +181,95 @@ export default function PortalUsuario({ solicitudes, reclamos, facturas, ciclo, 
 
 /* ═══════════  INICIO  ═══════════ */
 
-function Inicio({ mis, enCurso, ciclo, setModal, setVista, misFac }) {
+function MiSaldo({ saldo, movimientos, setModal }) {
+  const precio10 = cpt("BOMB_10").precio;
+  const equivale = precio10 ? Math.floor(saldo / precio10) : 0;
+  return (
+    <>
+      <style>{`
+.pu-saldo{background:linear-gradient(135deg,#12291F,#1E7A4C);color:#fff;border-radius:20px;padding:26px 28px;display:flex;justify-content:space-between;gap:26px;align-items:center;flex-wrap:wrap}
+.pu-saldo-l small{font-size:11.5px;color:#B6D6C6;display:block}
+.pu-saldo-l b{display:block;font-size:44px;letter-spacing:-1.4px;margin:6px 0 4px}
+.pu-saldo-l span{font-size:12.5px;color:#CFE4D9}
+.pu-saldo-r{background:#ffffff1a;border:1px solid #ffffff33;border-radius:14px;padding:16px 18px;max-width:330px}
+.pu-saldo-r p{margin:0;font-size:12px;line-height:1.6;color:#E2F0E9}
+.pu-mov{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line-2)}
+.pu-mov:last-child{border-bottom:0}
+.pu-mov-t b{display:block;font-size:14px}
+.pu-mov-t span{display:block;font-size:12px;color:var(--ink-3);margin-top:3px;line-height:1.4}
+.pu-mov-r{text-align:right;white-space:nowrap}
+.pu-mov-r b{display:block;font-size:15px}
+.pu-mov-r b.mas{color:var(--verde)}
+.pu-mov-r b.menos{color:var(--rojo)}
+.pu-mov-r span{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px}
+      `}</style>
+      <section className="pu-saldo">
+        <div className="pu-saldo-l">
+          <small>Dinero disponible en tu código</small>
+          <b>Bs {bs(saldo)}</b>
+          <span>{equivale > 0
+            ? `Te alcanza para ${equivale} bombona${equivale > 1 ? "s" : ""} de 10 kg al precio de hoy.`
+            : "Se descontará automáticamente en tu próxima compra."}</span>
+        </div>
+        <div className="pu-saldo-r">
+          <p>Cuando no retiras en la jornada, tu dinero <b>no se pierde ni queda como pedido pendiente</b>:
+             se abona a tu código. En tu próxima compra se descuenta primero este saldo y solo transfieres
+             la diferencia.</p>
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="card-h"><h2>Movimientos de tu saldo</h2><span className="card-note">{movimientos.length} registros</span></div>
+        <div>
+          {movimientos.map((m) => {
+            const t = tipoAbono(m.tipo);
+            return (
+              <div className="pu-mov" key={m.id}>
+                <div className="pu-mov-t">
+                  <b>{t.nombre}</b>
+                  <span>{fecha(m.fecha)} · {m.detalle || t.desc}</span>
+                </div>
+                <div className="pu-mov-r">
+                  <b className={m.signo > 0 ? "mas" : "menos"}>{m.signo > 0 ? "+" : "−"} Bs {bs(m.monto)}</b>
+                  <span>saldo Bs {bs(m.saldoResultante)}</span>
+                </div>
+              </div>
+            );
+          })}
+          {!movimientos.length && <div className="vacio"><Wallet size={30} /><p>Todavía no tienes movimientos de saldo.</p></div>}
+        </div>
+      </section>
+
+      <div className="aviso-pago"><Info size={15} />
+        <p>Tu saldo se guarda en <b>bolívares</b>. Si abonaste Bs 1.300 cuando la bombona costaba Bs 1.700 y
+           vuelves cuando cuesta Bs 2.600, se te descuentan tus Bs 1.300 y transfieres el resto.
+           Este saldo <b>no se devuelve en efectivo</b>: no vence, no se pierde y queda a tu nombre
+           hasta que lo uses en un pedido.</p></div>
+
+      <button className="btn primary lg" onClick={() => setModal("solicitud")} style={{ marginTop: 16 }}>
+        <Plus size={17} strokeWidth={2.6} /> Usar mi saldo en un pedido
+      </button>
+    </>
+  );
+}
+
+function Inicio({ mis, enCurso, ciclo, setModal, setVista, misFac, saldo = 0 }) {
   const cerca = ciclo && ciclo.restantes <= 6;
   const pasado = ciclo && ciclo.restantes < 0;
 
   return (
     <>
+      {saldo > 0 && (
+        <button className="acceso verde" style={{ width: "100%", marginBottom: 16 }} onClick={() => setVista("saldo")}>
+          <div className="acc-ico"><Wallet size={20} /></div>
+          <div className="acc-txt">
+            <b>Tienes Bs {bs(saldo)} a favor</b>
+            <span>Se descuentan solos en tu próximo pedido. Toca para ver el detalle.</span>
+          </div>
+          <ChevronRight size={17} className="acc-arrow" />
+        </button>
+      )}
+
       {ciclo && (
         <section className="hero">
           <div className="hero-l">
@@ -241,7 +381,7 @@ const Acceso = ({ icon: Ico, titulo, desc, onClick, tono }) => (
   </button>
 );
 
-const ICONOS_FASE = [ShieldCheck, Truck, CheckCircle2];
+const ICONOS_FASE = [Clock, ShieldCheck, Truck, CheckCircle2];
 
 function Tracker({ estado, compacto }) {
   const idx = faseIdx(estado);
@@ -333,7 +473,7 @@ function DetallePedido({ s, onClose, setDoc, facturas }) {
             <div><span>Producto</span><b>{c.nombre}</b></div>
             <div><span>Cantidad</span><b>{num(s.cantidad)} {c.unidad}</b></div>
             <div><span>Solicitado</span><b>{fecha(s.fecha)}</b></div>
-            <div><span>{faseIdx(s.estado) >= 2 ? "Entregado a la comuna" : "Jornada comunal"}</span><b>{fecha(s.entrega)}</b></div>
+            <div><span>{faseIdx(s.estado) >= faseIdx("CULMINADO") ? "Entregado a la comuna" : "Jornada comunal"}</span><b>{fecha(s.entrega)}</b></div>
             <div className="w2"><span>Punto de entrega de GasLara</span><b>{COM.punto} · {COM.nombre}</b></div>
             <div><span>Unidad</span><b>{s.operador || "Por asignar"}</b></div>
             <div><span>Centro</span><b>{cdtOf(s.cdt).nombre}</b></div>
@@ -553,12 +693,14 @@ function Perfil({ mis, ciclo }) {
 
 /* ═══════════  WIZARD  ═══════════ */
 
-function Wizard({ onClose, onSave, aviso }) {
+function Wizard({ onClose, onSave, aviso, saldo = 0 }) {
   const [paso, setPaso] = useState(1);
   const [d, setD] = useState({ concepto: "BOMB_18", cantidad: 1, ventana: "Mañana (8 am – 12 m)", nota: "", banco: "BDV", referencia: "" });
   const c = cpt(d.concepto), bk = banco(d.banco);
-  const m = montos(d.concepto, d.cantidad, C.id);
-  const refOk = /^\d{4,}$/.test(d.referencia.trim());
+  const m = montos(d.concepto, d.cantidad, C.id, HOY);
+  // El saldo a favor se devenga primero: solo se transfiere la diferencia.
+  const reparto = aplicarSaldo(m.total, saldo);
+  const refOk = /^\d{4,}$/.test(d.referencia.trim()) || reparto.porPagar <= 0;
   const copiar = (t, l) => { try { navigator.clipboard.writeText(t); aviso(`${l} copiado`); } catch (e) {} };
   const titulos = ["¿Qué necesitas?", "¿Cuándo y dónde?", "Paga tu pedido", "Revisa y confirma"];
 
@@ -635,7 +777,25 @@ function Wizard({ onClose, onSave, aviso }) {
 
           {paso === 3 && (
             <>
-              <div className="monto-grande"><span>Monto a pagar</span><b>Bs {bs(m.total)}</b></div>
+              {saldo > 0 ? (
+                <>
+                  <div className="det-docs" style={{ marginBottom: 14 }}>
+                    <div className="det-lbl">Tu saldo a favor se aplica primero</div>
+                    <div className="dd-row"><span>Total del pedido</span><b>Bs {bs(m.total)}</b></div>
+                    <div className="dd-row"><span>Descontado de tu saldo</span><b style={{ color: "var(--verde)" }}>− Bs {bs(reparto.devengado)}</b></div>
+                    <div className="dd-row"><span>Te queda a favor</span><b>Bs {bs(reparto.saldoRestante)}</b></div>
+                  </div>
+                  <div className="monto-grande">
+                    <span>{reparto.porPagar > 0 ? "Debes transferir" : "No debes transferir nada"}</span>
+                    <b>Bs {bs(reparto.porPagar)}</b>
+                  </div>
+                </>
+              ) : (
+                <div className="monto-grande"><span>Monto a pagar</span><b>Bs {bs(m.total)}</b></div>
+              )}
+              {reparto.porPagar <= 0 && (
+                <div className="aviso-pago"><Check size={15} /><p>Tu saldo cubre el pedido completo. Puedes continuar sin transferir.</p></div>
+              )}
               <div className="campo"><span>¿Por dónde vas a pagar?</span>
                 <div className="bancos">
                   {BANCOS.map((b) => (
@@ -655,8 +815,8 @@ function Wizard({ onClose, onSave, aviso }) {
                 <button className="cta-row" onClick={() => copiar(EMPRESA.rif, "Rif")}>
                   <div><span>Titular</span><b>GasLara C.A. · Rif: {EMPRESA.rif}</b></div><Copy size={16} />
                 </button>
-                <button className="cta-row" onClick={() => copiar(m.total.toFixed(2), "Monto")}>
-                  <div><span>Monto exacto</span><b>Bs {bs(m.total)}</b></div><Copy size={16} />
+                <button className="cta-row" onClick={() => copiar(reparto.porPagar.toFixed(2), "Monto")}>
+                  <div><span>Monto exacto</span><b>Bs {bs(reparto.porPagar)}</b></div><Copy size={16} />
                 </button>
               </div>
               <label className="campo"><span>Número de referencia del pago</span>
@@ -682,7 +842,9 @@ function Wizard({ onClose, onSave, aviso }) {
                 <div className="res-sep" />
                 <div className="res-row"><span>Subtotal</span><b>Bs {bs(m.base)}</b></div>
                 <div className="res-row"><span>IVA</span><b>{m.exento ? "Exonerado" : `Bs ${bs(m.iva)}`}</b></div>
-                <div className="res-row total"><span>Total pagado</span><b>Bs {bs(m.total)}</b></div>
+                <div className="res-row"><span>Total del pedido</span><b>Bs {bs(m.total)}</b></div>
+                {reparto.devengado > 0 && <div className="res-row"><span>Saldo a favor aplicado</span><b>− Bs {bs(reparto.devengado)}</b></div>}
+                <div className="res-row total"><span>Transferido</span><b>Bs {bs(reparto.porPagar)}</b></div>
               </div>
               <div className="aviso-pago"><Info size={15} /><p>La factura se emite cuando el despacho se cierra en el sistema, no en este momento. La verás en tu historial ese mismo día.</p></div>
             </>
@@ -823,6 +985,11 @@ display:flex;min-height:calc(100vh - 46px);background:var(--bg);font-family:var(
 .su-nom{font-size:12.5px;font-weight:650;line-height:1.25;text-transform:capitalize}
 .su-sub{font-size:11px;color:var(--ink-3);margin-top:2px}
 .side nav{display:flex;flex-direction:column;gap:2px;padding:0 12px}
+/* Selector de rol: la permisología hecha visible en el prototipo. */
+.pu-rol{display:block;margin:0 14px 16px}
+.pu-rol span{display:block;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+.pu-rol select{width:100%;box-sizing:border-box;border:1px solid var(--linea);border-radius:10px;padding:10px 11px;font-size:13.5px;font-family:inherit;background:var(--panel);color:var(--ink-1)}
+.pu-nav-grupo{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);padding:14px 12px 6px}
 .nav-b{display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;background:none;border:none;color:var(--ink-2);font-size:14.5px;text-align:left;border-radius:11px;transition:.13s}
 .nav-b:hover{background:var(--line-2)}
 .nav-b.on{background:var(--ink);color:#fff;font-weight:560}
@@ -856,8 +1023,11 @@ display:flex;min-height:calc(100vh - 46px);background:var(--bg);font-family:var(
 
 .hero{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:28px 32px;display:grid;grid-template-columns:1fr 180px;gap:26px;align-items:center;margin-bottom:16px;box-shadow:var(--sh)}
 .hero-eyebrow{display:flex;align-items:center;gap:6px;font-size:11px;text-transform:uppercase;letter-spacing:.13em;color:var(--ink-3);font-weight:650}
-.hero-num{font-size:50px;font-weight:700;letter-spacing:-2.2px;line-height:1;margin:10px 0;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
-.hero-num em{font-size:15px;font-weight:520;color:var(--ink-3);font-style:normal;line-height:1.3;max-width:180px}
+/* El tracking va en em, no en px: así escala con el tamaño y no aplasta al texto hijo.
+   Con -2.2px fijos, el <em> de 15px heredaba un tracking pensado para 50px y las
+   letras se montaban unas sobre otras. */
+.hero-num{font-size:50px;font-weight:700;letter-spacing:-.044em;line-height:1;margin:10px 0;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.hero-num em{font-size:15px;font-weight:520;color:var(--ink-3);font-style:normal;line-height:1.4;max-width:190px;letter-spacing:normal}
 .hero-desc{margin:0 0 18px;font-size:14.5px;color:var(--ink-2);line-height:1.55;max-width:52ch}
 .hero-desc b{font-weight:640;color:var(--ink)}
 .ciclo{max-width:440px}

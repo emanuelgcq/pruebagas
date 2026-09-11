@@ -18,18 +18,44 @@ export const OPERADORES_DISTRIBUCION = [
   { id: "OP-UN-01", nombre: "Andrés Felipe Vargas", cedula: "V-17.205.631", tipo: "EPSDC", epsdc: "UNION", activo: true },
 ];
 
+/* Un vehículo no sale con el conductor solo: lleva ayudante. Sin él, la unidad no está
+   realmente disponible aunque esté estacionada. */
+export const AYUDANTES_DISTRIBUCION = [
+  { id: "AY-01", nombre: "Jesús Colmenárez", cedula: "V-21.554.108", activo: true },
+  { id: "AY-02", nombre: "Deiby Sequera", cedula: "V-24.118.770", activo: true },
+  { id: "AY-03", nombre: "Wilmer Aguilar", cedula: "V-19.882.415", activo: true },
+  { id: "AY-04", nombre: "Yoiber Perdomo", cedula: "V-23.407.996", activo: true },
+  { id: "AY-05", nombre: "Endry Meléndez", cedula: "V-25.910.334", activo: false, motivo: "Reposo médico" },
+  { id: "AY-06", nombre: "Alexis Bustamante", cedula: "V-18.226.501", activo: true },
+];
+export const ayudanteDistribucion = (id) =>
+  AYUDANTES_DISTRIBUCION.find((a) => a.id === String(id)) || { id: String(id || ""), nombre: "Por asignar", cedula: "—", activo: false };
+
 // En el sistema nuevo la unidad se identifica por placa. El código anterior solo se conserva
 // como referencia de migración de las hojas de trabajo existentes.
+// `certificacionVence` y `polizaVence` son lo que hace que "disponible" signifique algo:
+// un vehículo sin certificación vigente para transportar GLP no puede salir.
 export const UNIDADES_DISTRIBUCION = [
-  { id: "A73KD2", placa: "A73KD2", codigoInterno: "1521", tipo: "FUERZA_PROPIA", etiqueta: "Fuerza propia", capacidad: 1050, operadorDefault: "OP-FP-01" },
-  { id: "B41MX8", placa: "B41MX8", codigoInterno: "1578", tipo: "FUERZA_PROPIA", etiqueta: "Fuerza propia", capacidad: 1050, operadorDefault: "OP-FP-02" },
-  { id: "A92RT5", placa: "A92RT5", codigoInterno: "2115", tipo: "FUERZA_PROPIA", etiqueta: "Fuerza propia", capacidad: 1050, operadorDefault: "OP-FP-03" },
-  { id: "C56NP1", placa: "C56NP1", codigoInterno: "1449", tipo: "FUERZA_PROPIA", etiqueta: "Fuerza propia", capacidad: 1050, operadorDefault: "OP-FP-04" },
-  { id: "D18GL7", placa: "D18GL7", codigoInterno: "2388", tipo: "FUERZA_PROPIA", etiqueta: "Fuerza propia · granel", capacidad: 10000, granel: true, operadorDefault: "OP-FP-05" },
-  { id: "E34CR9", placa: "E34CR9", codigoInterno: "3763", tipo: "EPSDC", etiqueta: "EPSDC Cercado", epsdc: "CERCADO", capacidad: 1050, operadorDefault: "OP-CE-01" },
-  { id: "F21CE6", placa: "F21CE6", codigoInterno: "1", tipo: "EPSDC", etiqueta: "EPSDC Cercado", epsdc: "CERCADO", capacidad: 1050, operadorDefault: "OP-CE-02" },
-  { id: "G85UN4", placa: "G85UN4", codigoInterno: "9078", tipo: "EPSDC", etiqueta: "EPSDC Unión", epsdc: "UNION", capacidad: 1050, operadorDefault: "OP-UN-01" },
+  { id: "A73KD2", placa: "A73KD2", codigoInterno: "1521", tipo: "FUERZA_PROPIA", etiqueta: "Fuerza propia", capacidad: 1050, operadorDefault: "OP-FP-01", ayudanteDefault: "AY-01", certificacionVence: new Date(2027, 2, 15), polizaVence: new Date(2026, 11, 31), mantenimiento: "AL_DIA" },
+  { id: "B41MX8", placa: "B41MX8", codigoInterno: "1578", tipo: "FUERZA_PROPIA", etiqueta: "Fuerza propia", capacidad: 1050, operadorDefault: "OP-FP-02", ayudanteDefault: "AY-02", certificacionVence: new Date(2027, 0, 20), polizaVence: new Date(2027, 1, 28), mantenimiento: "AL_DIA" },
+  { id: "A92RT5", placa: "A92RT5", codigoInterno: "2115", tipo: "FUERZA_PROPIA", etiqueta: "Fuerza propia", capacidad: 1050, operadorDefault: "OP-FP-03", ayudanteDefault: "AY-03", certificacionVence: new Date(2026, 9, 10), polizaVence: new Date(2026, 10, 15), mantenimiento: "AL_DIA" },
+  { id: "C56NP1", placa: "C56NP1", codigoInterno: "1449", tipo: "FUERZA_PROPIA", etiqueta: "Fuerza propia", capacidad: 1050, operadorDefault: "OP-FP-04", ayudanteDefault: "AY-04", certificacionVence: new Date(2026, 6, 30), polizaVence: new Date(2027, 3, 12), mantenimiento: "TALLER" },
+  { id: "D18GL7", placa: "D18GL7", codigoInterno: "2388", tipo: "FUERZA_PROPIA", etiqueta: "Fuerza propia · granel", capacidad: 10000, granel: true, operadorDefault: "OP-FP-05", ayudanteDefault: "AY-06", certificacionVence: new Date(2027, 5, 30), polizaVence: new Date(2027, 0, 31), mantenimiento: "AL_DIA" },
+  { id: "E34CR9", placa: "E34CR9", codigoInterno: "3763", tipo: "EPSDC", etiqueta: "EPSDC Cercado", epsdc: "CERCADO", capacidad: 1050, operadorDefault: "OP-CE-01", ayudanteDefault: "AY-05", certificacionVence: new Date(2027, 1, 18), polizaVence: new Date(2026, 11, 20), mantenimiento: "AL_DIA" },
+  { id: "F21CE6", placa: "F21CE6", codigoInterno: "1", tipo: "EPSDC", etiqueta: "EPSDC Cercado", epsdc: "CERCADO", capacidad: 1050, operadorDefault: "OP-CE-02", ayudanteDefault: "AY-02", certificacionVence: new Date(2027, 4, 22), polizaVence: new Date(2027, 2, 10), mantenimiento: "AL_DIA" },
+  { id: "G85UN4", placa: "G85UN4", codigoInterno: "9078", tipo: "EPSDC", etiqueta: "EPSDC Unión", epsdc: "UNION", capacidad: 1050, operadorDefault: "OP-UN-01", ayudanteDefault: "AY-03", certificacionVence: new Date(2027, 3, 5), polizaVence: new Date(2027, 1, 14), mantenimiento: "AL_DIA" },
 ];
+
+/** Un vehículo está realmente disponible si tiene certificación, póliza, mantenimiento y ayudante. */
+export const disponibilidadUnidad = (u, hoy = new Date(2026, 7, 14)) => {
+  const ay = ayudanteDistribucion(u.ayudanteDefault);
+  const motivos = [];
+  if (u.certificacionVence && u.certificacionVence < hoy) motivos.push("Certificación GLP vencida");
+  if (u.polizaVence && u.polizaVence < hoy) motivos.push("Póliza vencida");
+  if (u.mantenimiento === "TALLER") motivos.push("En taller");
+  if (!ay.activo) motivos.push(`Ayudante no disponible${ay.motivo ? ` · ${ay.motivo}` : ""}`);
+  return { disponible: motivos.length === 0, motivos, ayudante: ay };
+};
 
 
 const fila = (id, bloque, zona, ruta, comuna, comunidad, b10, b18, b27, b43, ad, unidad, ufa, faa, dias, parroquia = "") => ({
@@ -102,6 +128,7 @@ export const RESUMEN_PLAN_1408 = resumenPlanificacion();
 export const crearAsignacionesIniciales = () => PLANIFICACION_1408.map((r) => {
   const u = unidadDistribucion(r.unidad);
   const op = operadorDistribucion(u.operadorDefault);
+  const ay = ayudanteDistribucion(u.ayudanteDefault);
   return {
     ...r,
     unidadCodigoInterno: String(r.unidad),
@@ -110,6 +137,9 @@ export const crearAsignacionesIniciales = () => PLANIFICACION_1408.map((r) => {
     operadorId: op.id,
     conductor: op.nombre,
     conductorCedula: op.cedula,
+    ayudanteId: ay.id,
+    ayudante: ay.nombre,
+    ayudanteCedula: ay.cedula,
     transportistaTipo: u.tipo,
     epsdc: u.epsdc || null,
     estadoRuta: ((!r.ad || String(r.ad) === "0") && !["INSTITUCIÓN", "COMERCIO"].includes(r.bloque)) ? "SIN_PLANIFICAR" : "ASIGNADA",

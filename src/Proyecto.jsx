@@ -14,9 +14,7 @@ const accesos = [
   { id: "distribucion", titulo: "Distribución", sub: "Pedidos en vivo, planificación de AD, rutas, placas, operadores y reportes", icon: Route, tono: "am" },
   { id: "admin", titulo: "Comercialización", sub: "Inventario, recaudación pendiente, BOP, facturación, cierre y EPSDC", icon: Building2, tono: "az" },
     { id: "nomina", titulo: "Nómina", sub: "Backoffice interno: expedientes, cálculo legal, prestaciones, vacaciones y reportes", icon: Calculator, tono: "vd" },
-  { id: "comuna", titulo: "Portal Comuna", sub: "Miembros, pagos individuales y bombonas pendientes de recibir", icon: Users, tono: "vd" },
-  { id: "ops", titulo: "Operaciones", sub: "AD, reparto GasLara/EPSDC, firma y cierre físico", icon: Truck, tono: "am" },
-  { id: "portal", titulo: "Portal del usuario", sub: "Solicitud, pago, estado del despacho y documentos", icon: Smartphone, tono: "mo" },
+  { id: "portal", titulo: "Portal del usuario", sub: "Solicitud, pago, documentos y —con el rol de comuna— la gestión del lote comunal", icon: Smartphone, tono: "mo" },
 ];
 
 export default function Proyecto({ onNavigate, solicitudes, existencias, compromisos, disponibles, rutasDistribucion = [] }) {
@@ -38,7 +36,7 @@ export default function Proyecto({ onNavigate, solicitudes, existencias, comprom
           <p>El proyecto separa correctamente el momento en que una persona paga del momento en que el gas sale físicamente. Así el cierre no descuadra inventario aunque una bombona sea pagada hoy y entregada semanas después.</p>
           <div className="pj-hero-actions">
             <button onClick={() => onNavigate("distribucion")} className="pj-btn pri">Abrir Distribución <ArrowRight size={16}/></button>
-            <button onClick={() => onNavigate("comuna")} className="pj-btn">Ver Portal Comuna <Users size={16}/></button>
+            <button onClick={() => onNavigate("portal")} className="pj-btn">Ver Portal del usuario <Users size={16}/></button>
           </div>
         </div>
         <div className="pj-metric-panel">
@@ -111,7 +109,7 @@ export default function Proyecto({ onNavigate, solicitudes, existencias, comprom
               <li><CheckCircle2/> En residencial la empresa hace una sola entrega por jornada en la comuna; no reparte casa por casa. La trazabilidad conserva al usuario final.</li>
               <li><CheckCircle2/> Los datos demo priorizan personas naturales, que son la realidad predominante dentro de las comunas.</li>
             </ul>
-            <button onClick={() => onNavigate("comuna")} className="pj-link">Entrar al Portal Comuna <ArrowRight size={15}/></button>
+            <button onClick={() => onNavigate("portal")} className="pj-link">Entrar al portal · rol comuna <ArrowRight size={15}/></button>
           </article>
         </div>
       </section>

@@ -32,33 +32,61 @@ export const BANCOS = [
 ];
 export const banco = (id) => BANCOS.find((b) => b.id === id) || BANCOS[0];
 
-/* ── Centros de distribución ── */
+/* ── Centros de distribución ──
+   Comercialización opera dos CDT. Cada uno atiende varias comunas y municipios. */
 export const CDTS = [
-  { id: "CDT-BQTO", nombre: "C.D.T. Gral. Jacinto Lara", corto: "Gral. Jacinto Lara", inicial: 186400, capacidad: 220000 },
-  { id: "CDT-CABU", nombre: "CDT Cabudare", corto: "Cabudare", inicial: 124800, capacidad: 160000 },
-  { id: "CDT-CARO", nombre: "CDT Carora", corto: "Carora", inicial: 78200, capacidad: 120000 },
-  { id: "CDT-QUIB", nombre: "CDT Quíbor", corto: "Quíbor", inicial: 51600, capacidad: 90000 },
+  { id: "CDT-JL", nombre: "C.D.T. Gral. Jacinto Lara", corto: "Jacinto Lara", inicial: 264600, capacidad: 340000,
+    sector: "Barquisimeto, Iribarren y eje oeste (Torres)" },
+  { id: "CDT-JGI", nombre: "C.D.T. Juan Guillermo Iribarren", corto: "Juan G. Iribarren", inicial: 176400, capacidad: 250000,
+    sector: "Palavecino, Jiménez y eje este" },
 ];
 export const cdtOf = (id) => CDTS.find((c) => c.id === id) || CDTS[0];
 
-/* ── Conversión operativa de GLP ── */
-export const KG_POR_LITRO_GLP = 0.540;
+/* ── Conversión operativa de GLP ──
+   La densidad depende de la composición de la mezcla, y por eso circulan varias cifras:
+
+     100% propano ................. 0,504 – 0,510 kg/L
+     Mezcla 70/30 propano-butano .. ~0,530 kg/L   (composición típica venezolana)
+     Mezcla 60/40 ................. 0,5376 kg/L → 0,540 como factor comercial
+     100% butano .................. ~0,580 kg/L
+
+   GasLara despacha GLP de bombona, que es mezcla, no propano puro. El factor operativo
+   es 0,540: el mismo que usa la industria y el que ya venía aplicando el sistema.
+   La cifra de 0,504 corresponde al caso de propano al 100% y no aplica aquí.
+
+   Este es el único factor del sistema. Antes convivían 0,540 en inventario y 0,500 en las
+   hojas de distribución, lo que producía dos cifras distintas de litros para el mismo kilo.
+
+   En producción debería ser configurable por CDT y por lote recibido, y corregido por
+   temperatura: el GLP se dilata cerca de 0,3% por cada grado. Se deja como parámetro
+   nombrado para que ese cambio sea una línea y no una búsqueda por todo el código. */
+export const COMPOSICIONES_GLP = [
+  { id: "MEZCLA_70_30", nombre: "Mezcla 70/30 propano-butano", factor: 0.530, nota: "Composición típica en Venezuela" },
+  { id: "MEZCLA_60_40", nombre: "Mezcla 60/40 propano-butano", factor: 0.540, nota: "Factor comercial estándar de la industria" },
+  { id: "PROPANO_100", nombre: "Propano 100%", factor: 0.504, nota: "Solo si el producto es propano puro" },
+  { id: "BUTANO_100", nombre: "Butano 100%", factor: 0.580, nota: "No aplica a bombona doméstica" },
+];
+export const COMPOSICION_ACTIVA = "MEZCLA_60_40";
+export const composicionGLP = (id = COMPOSICION_ACTIVA) =>
+  COMPOSICIONES_GLP.find((c) => c.id === id) || COMPOSICIONES_GLP[1];
+
+export const KG_POR_LITRO_GLP = composicionGLP().factor;
 export const kgALitros = (kg) => (kg || 0) / KG_POR_LITRO_GLP;
 export const litrosAKg = (litros) => (litros || 0) * KG_POR_LITRO_GLP;
 
 /* ── Comunas: punto intermedio de distribución entre CDT y usuario ── */
 export const COMUNAS = [
-  { id: "COM-BQTO-01", codigo: "COM-BQTO-01", nombre: "Comuna Barquisimeto Centro", cdt: "CDT-BQTO", sector: "Barquisimeto Centro y Oeste", punto: "Centro comunal El Obelisco, Barquisimeto", coordinador: "María González", tel: "0414-610.22.18" },
-  { id: "COM-CABU-01", codigo: "COM-CABU-01", nombre: "Comuna Cabudare Centro", cdt: "CDT-CABU", sector: "Cabudare y Agua Viva", punto: "Casa comunal Cabudare Centro", coordinador: "José Mendoza", tel: "0412-442.18.70" },
-  { id: "COM-CARO-01", codigo: "COM-CARO-01", nombre: "Comuna Carora Centro", cdt: "CDT-CARO", sector: "Carora y parroquias cercanas", punto: "Centro comunal Carora", coordinador: "Luisa Torrealba", tel: "0416-332.09.11" },
-  { id: "COM-QUIB-01", codigo: "COM-QUIB-01", nombre: "Comuna Quíbor Centro", cdt: "CDT-QUIB", sector: "Quíbor y Municipio Jiménez", punto: "Casa comunal Quíbor", coordinador: "Pedro Giménez", tel: "0426-740.31.66" },
+  { id: "COM-BQTO-01", codigo: "COM-BQTO-01", nombre: "Comuna Barquisimeto Centro", cdt: "CDT-JL", sector: "Barquisimeto Centro y Oeste", punto: "Centro comunal El Obelisco, Barquisimeto", coordinador: "María González", tel: "0414-610.22.18" },
+  { id: "COM-CABU-01", codigo: "COM-CABU-01", nombre: "Comuna Cabudare Centro", cdt: "CDT-JGI", sector: "Cabudare y Agua Viva", punto: "Casa comunal Cabudare Centro", coordinador: "José Mendoza", tel: "0412-442.18.70" },
+  { id: "COM-CARO-01", codigo: "COM-CARO-01", nombre: "Comuna Carora Centro", cdt: "CDT-JL", sector: "Carora y parroquias cercanas", punto: "Centro comunal Carora", coordinador: "Luisa Torrealba", tel: "0416-332.09.11" },
+  { id: "COM-QUIB-01", codigo: "COM-QUIB-01", nombre: "Comuna Quíbor Centro", cdt: "CDT-JGI", sector: "Quíbor y Municipio Jiménez", punto: "Casa comunal Quíbor", coordinador: "Pedro Giménez", tel: "0426-740.31.66" },
   /* Registro legado sin código: queda dentro de la base y el sistema puede normalizarlo. */
-  { id: "COM-PEND-01", codigo: null, nombre: "Comunidad La Ruezga Norte", cdt: "CDT-BQTO", sector: "La Ruezga Norte, Barquisimeto", punto: "Casa comunal La Ruezga Norte", coordinador: "Ana Colmenárez", tel: "0412-410.18.42" },
-  { id: "COM-EZEQ-ZAM", codigo: "JGB-EZA", nombre: "Comuna Chavista Ezequiel Zamora Agroproductiva", cdt: "CDT-BQTO", sector: "Parroquia José Gregorio Bastidas", punto: "Punto comunal José Gregorio Bastidas", coordinador: "Responsable comunal", tel: "—" },
-  { id: "COM-CFRT", codigo: "TAM-CFRT", nombre: "Circuito Fuerza Revolucionaria Tamaca", cdt: "CDT-BQTO", sector: "Parroquia Tamaca", punto: "Punto comunal Tamaca", coordinador: "Responsable comunal", tel: "—" },
-  { id: "COM-LPBCH", codigo: "TAM-LPBCH", nombre: "Luchadores de la Patria de Bolívar y Chávez", cdt: "CDT-BQTO", sector: "Parroquia Tamaca", punto: "Punto comunal Tamaca", coordinador: "Responsable comunal", tel: "—" },
-  { id: "COM-ECO5R", codigo: "UNI-ECO5R", nombre: "Ecosocialista Renaciendo con 5 Raíces", cdt: "CDT-BQTO", sector: "Parroquia Unión", punto: "Punto comunal Unión", coordinador: "Responsable comunal", tel: "—" },
-  { id: "COM-FREV", codigo: "TAM-FREV", nombre: "Fuerzas Revolucionarias", cdt: "CDT-BQTO", sector: "Parroquia Tamaca", punto: "Punto comunal Tamaca", coordinador: "Responsable comunal", tel: "—" },
+  { id: "COM-PEND-01", codigo: null, nombre: "Comunidad La Ruezga Norte", cdt: "CDT-JL", sector: "La Ruezga Norte, Barquisimeto", punto: "Casa comunal La Ruezga Norte", coordinador: "Ana Colmenárez", tel: "0412-410.18.42" },
+  { id: "COM-EZEQ-ZAM", codigo: "JGB-EZA", nombre: "Comuna Chavista Ezequiel Zamora Agroproductiva", cdt: "CDT-JL", sector: "Parroquia José Gregorio Bastidas", punto: "Punto comunal José Gregorio Bastidas", coordinador: "Responsable comunal", tel: "—" },
+  { id: "COM-CFRT", codigo: "TAM-CFRT", nombre: "Circuito Fuerza Revolucionaria Tamaca", cdt: "CDT-JL", sector: "Parroquia Tamaca", punto: "Punto comunal Tamaca", coordinador: "Responsable comunal", tel: "—" },
+  { id: "COM-LPBCH", codigo: "TAM-LPBCH", nombre: "Luchadores de la Patria de Bolívar y Chávez", cdt: "CDT-JL", sector: "Parroquia Tamaca", punto: "Punto comunal Tamaca", coordinador: "Responsable comunal", tel: "—" },
+  { id: "COM-ECO5R", codigo: "UNI-ECO5R", nombre: "Ecosocialista Renaciendo con 5 Raíces", cdt: "CDT-JL", sector: "Parroquia Unión", punto: "Punto comunal Unión", coordinador: "Responsable comunal", tel: "—" },
+  { id: "COM-FREV", codigo: "TAM-FREV", nombre: "Fuerzas Revolucionarias", cdt: "CDT-JL", sector: "Parroquia Tamaca", punto: "Punto comunal Tamaca", coordinador: "Responsable comunal", tel: "—" },
 ];
 export const comunaOf = (id) => COMUNAS.find((c) => c.id === id) || COMUNAS[0];
 export const COMUNA_PORTAL = COMUNAS[0];
@@ -74,10 +102,10 @@ export const epsdcOf = (id) => EPSDCS.find((e) => e.id === id) || EPSDCS[0];
 export const CONCEPTOS = [
   { id: "BOMB_10", nombre: "Recarga Bombona 10 kilos", corto: "Bombona 10 kg", sub: "Residencial o comercial según contrato", grupo: "Bombonas", unidad: "bombona", precio: 924.05, kg: 10, inv: true, exento: true, fiscalPorUso: true, bombona: true, contrato: "Bombona Domicilio" },
   { id: "BOMB_18", nombre: "Recarga Bombona 18 kilos", corto: "Bombona 18 kg", sub: "Residencial o comercial según contrato", grupo: "Bombonas", unidad: "bombona", precio: 1663.29, kg: 18, inv: true, exento: true, fiscalPorUso: true, bombona: true, contrato: "Bombona Domicilio" },
-  { id: "BOMB_15", nombre: "Recarga Bombona 15 kilos", corto: "Bombona 15 kg", sub: "Tamaño operativo de distribución · tarifa por parametrizar", grupo: "Bombonas", unidad: "bombona", precio: 0, kg: 15, inv: true, exento: false, bombona: true, distribucionOnly: true, contrato: "Distribución" },
-  { id: "BOMB_21", nombre: "Recarga Bombona 21 kilos", corto: "Bombona 21 kg", sub: "Tamaño operativo de distribución · tarifa por parametrizar", grupo: "Bombonas", unidad: "bombona", precio: 0, kg: 21, inv: true, exento: false, bombona: true, distribucionOnly: true, contrato: "Distribución" },
+  { id: "BOMB_15", nombre: "Recarga Bombona 15 kilos", corto: "Bombona 15 kg", sub: "Tamaño operativo de distribución", grupo: "Bombonas", unidad: "bombona", precio: 1386.08, kg: 15, inv: true, exento: true, fiscalPorUso: true, bombona: true, distribucionOnly: true, contrato: "Distribución" },
+  { id: "BOMB_21", nombre: "Recarga Bombona 21 kilos", corto: "Bombona 21 kg", sub: "Tamaño operativo de distribución", grupo: "Bombonas", unidad: "bombona", precio: 1940.51, kg: 21, inv: true, exento: false, bombona: true, distribucionOnly: true, contrato: "Distribución" },
   { id: "BOMB_27", nombre: "Recarga Bombona 27 kilos", corto: "Bombona 27 kg", sub: "Uso comercial", grupo: "Bombonas", unidad: "bombona", precio: 2494.94, kg: 27, inv: true, exento: false, bombona: true, contrato: "Bombona Comercial" },
-  { id: "BOMB_43", nombre: "Recarga Bombona 43 kilos", corto: "Bombona 43 kg", sub: "Tamaño operativo de distribución · tarifa por parametrizar", grupo: "Bombonas", unidad: "bombona", precio: 0, kg: 43, inv: true, exento: false, bombona: true, distribucionOnly: true, contrato: "Distribución" },
+  { id: "BOMB_43", nombre: "Recarga Bombona 43 kilos", corto: "Bombona 43 kg", sub: "Uso comercial e institucional", grupo: "Bombonas", unidad: "bombona", precio: 3973.42, kg: 43, inv: true, exento: false, bombona: true, distribucionOnly: true, contrato: "Distribución" },
   { id: "GAS_CARB", nombre: "Gas Carburado", corto: "Gas carburado", sub: "Por kilogramo", grupo: "Granel", unidad: "kilo", precio: 118.00, kg: 1, inv: true, exento: false, granel: true, contrato: "Carburado" },
   { id: "GRAN_RES", nombre: "Gas Granel Residencial", corto: "Granel residencial", sub: "Por kilogramo", grupo: "Granel", unidad: "kilo", precio: 92.40, kg: 1, inv: true, exento: true, granel: true, contrato: "Granel Domicilio" },
   { id: "GRAN_COM", nombre: "Gas Granel Comercial", corto: "Granel comercial", sub: "Por kilogramo", grupo: "Granel", unidad: "kilo", precio: 110.00, kg: 1, inv: true, exento: false, granel: true, contrato: "Granel Comercial" },
@@ -92,6 +120,58 @@ export const GRUPOS = ["Bombonas", "Granel", "Servicios", "Renovadora"];
 export const PRODUCTOS = CONCEPTOS.filter((c) => (c.bombona || c.granel) && !c.distribucionOnly);
 export const SERVICIOS = CONCEPTOS.filter((c) => !c.bombona && !c.granel);
 
+/* ═══════════  LISTA DE PRECIOS CON VIGENCIA MENSUAL  ═══════════
+   Los precios se actualizan cada mes. Un precio no se "cambia": se versiona.
+   Por eso la factura de julio conserva el precio de julio aunque hoy sea otro:
+   `montos()` resuelve siempre contra la fecha del documento, no contra el precio actual.
+   Sin esto, cambiar una tarifa reescribiría el libro de ventas hacia atrás. */
+
+// Factor de cada período respecto del precio vigente de agosto 2026 (base 1,00).
+const FACTOR_PERIODO = {
+  "2025-11": 0.331, "2025-12": 0.376, "2026-00": 0.427, "2026-01": 0.485,
+  "2026-02": 0.551, "2026-03": 0.626, "2026-04": 0.711, "2026-05": 0.784,
+  "2026-06": 0.865, "2026-07": 1.000, "2026-08": 1.180,
+};
+const clavePeriodo = (d) => {
+  const v = d instanceof Date ? d : new Date(d);
+  return Number.isNaN(v.getTime()) ? "2026-07" : `${v.getFullYear()}-${String(v.getMonth()).padStart(2, "0")}`;
+};
+const redondearTarifa = (n) => Math.round(n * 100) / 100;
+
+export const PERIODOS_PRECIO = Object.keys(FACTOR_PERIODO).sort();
+export const etiquetaPeriodo = (clave) => {
+  const [a, m] = clave.split("-").map(Number);
+  return new Date(a, m, 1).toLocaleDateString("es-VE", { month: "long", year: "numeric" });
+};
+
+/* Resolución oficial que respalda cada tarifa. En producción viene de la Gaceta. */
+export const RESOLUCIONES_PRECIO = {
+  "2026-05": "Resolución interna GC-2026-06", "2026-06": "Resolución interna GC-2026-07",
+  "2026-07": "Resolución interna GC-2026-08", "2026-08": "Resolución interna GC-2026-09",
+};
+
+export const LISTA_PRECIOS = Object.fromEntries(
+  PERIODOS_PRECIO.map((clave) => [
+    clave,
+    Object.fromEntries(CONCEPTOS.map((c) => [c.id, redondearTarifa(c.precio * FACTOR_PERIODO[clave])])),
+  ])
+);
+
+/** Precio vigente de un concepto en una fecha dada. Nunca usa el precio "de hoy" para el pasado. */
+export const precioVigente = (conceptoId, fechaRef = null) => {
+  const c = cpt(conceptoId);
+  if (!fechaRef) return c.precio;
+  const tabla = LISTA_PRECIOS[clavePeriodo(fechaRef)];
+  return tabla && tabla[conceptoId] != null ? tabla[conceptoId] : c.precio;
+};
+export const variacionPrecio = (conceptoId, clave) => {
+  const i = PERIODOS_PRECIO.indexOf(clave);
+  if (i <= 0) return null;
+  const previo = LISTA_PRECIOS[PERIODOS_PRECIO[i - 1]][conceptoId];
+  const actual = LISTA_PRECIOS[clave][conceptoId];
+  return previo ? ((actual - previo) / previo) * 100 : null;
+};
+
 /* ── Tipos de despacho ── */
 export const TIPOS_DESPACHO = [
   { id: "COMERCIAL", nombre: "Comercial", factura: true, requierePago: true },
@@ -102,98 +182,637 @@ export const TIPOS_DESPACHO = [
 ];
 export const tpd = (id) => TIPOS_DESPACHO.find((t) => t.id === id) || TIPOS_DESPACHO[0];
 
+/* ═══════════  CLASIFICACIÓN DEL USUARIO  ═══════════
+   Son dos ejes independientes, no una sola lista:
+   · Condición de pago  → CUÁNDO paga (contado o crédito).
+   · Condición tarifaria → CUÁNTO paga y quién lo autorizó (regular, exonerado, protegido).
+   Un usuario puede ser CRÉDITO y PROTEGIDO al mismo tiempo. Si fueran un solo campo
+   habría que inventar combinaciones y la lista crecería sin control.
+
+   Exonerado y protegido no se asignan con un clic: exigen documento que lo respalde,
+   quién autorizó y fecha de vencimiento. El sistema los caduca solo. */
+
+export const CONDICIONES_PAGO = [
+  { id: "CONTADO", nombre: "Contado", desc: "Paga antes del despacho", color: "#1C7A50" },
+  { id: "CREDITO", nombre: "Crédito", desc: "Se factura y cobra según condición pactada", color: "#2D65B0" },
+];
+export const condicionPago = (id) => CONDICIONES_PAGO.find((c) => c.id === id) || CONDICIONES_PAGO[0];
+
+export const CONDICIONES_TARIFA = [
+  { id: "REGULAR", nombre: "Regular", desc: "Paga la tarifa vigente completa", requiereAval: false, factorTarifa: 1, color: "#5D6974" },
+  { id: "EXONERADO", nombre: "Exonerado", desc: "No paga. Requiere acto administrativo con vigencia", requiereAval: true, factorTarifa: 0, color: "#8A5A16" },
+  { id: "PROTEGIDO", nombre: "Protegido", desc: "Tarifa social reducida con cupo mensual", requiereAval: true, factorTarifa: 0.5, cupoMensualKg: 18, color: "#2D65B0" },
+];
+export const condicionTarifa = (id) => CONDICIONES_TARIFA.find((c) => c.id === id) || CONDICIONES_TARIFA[0];
+
+/** Una condición especial solo vale si tiene aval vigente. Vencida, el usuario vuelve a Regular. */
+export const tarifaVigenteDe = (u, ref = null) => {
+  const base = condicionTarifa(u?.condicionTarifa);
+  if (!base.requiereAval) return { ...base, vigente: true, vencida: false };
+  const hasta = u?.tarifaVence instanceof Date ? u.tarifaVence : null;
+  const fecha = ref || HOY;
+  const vencida = !hasta || hasta < fecha;
+  return vencida
+    ? { ...condicionTarifa("REGULAR"), vigente: false, vencida: true, original: base.id }
+    : { ...base, vigente: true, vencida: false };
+};
+
+/* ── Estado del padrón: activo / inactivo por 180 días sin movimiento ──
+   La clasificación es una ETIQUETA para depurar padrón y priorizar, nunca un bloqueo.
+   El reloj se pausa si la falta de movimiento es imputable a la empresa: si a la comuna
+   del usuario no se le planificó ninguna jornada, no se le cuenta en contra.
+   Reactivación automática al primer movimiento, sin trámite. */
+export const DIAS_INACTIVIDAD = 180;
+
+export const ultimoMovimientoDe = (usuarioId, sols = [], abonos = []) => {
+  // Una entrega programada a futuro no es un movimiento ya ocurrido: se descarta
+  // para no producir antigüedades negativas.
+  const tope = HOY.getTime();
+  const fechas = [
+    ...sols.filter((s) => s.usuario === usuarioId).flatMap((s) => [s.fecha, s.entrega, s.pago?.fecha]),
+    ...abonos.filter((a) => a.usuario === usuarioId).map((a) => a.fecha),
+  ].filter((d) => d instanceof Date && !Number.isNaN(d.getTime()) && d.getTime() <= tope);
+  return fechas.length ? new Date(Math.max(...fechas.map((d) => d.getTime()))) : null;
+};
+
+/* Motivos por los que una persona decide el estado, en vez de deducirlo el reloj.
+   El automatismo de 180 días sirve para depurar padrón, pero no sabe que alguien
+   falleció, se mudó o tiene el contrato suspendido. Eso lo sabe quien atiende. */
+export const MOTIVOS_ESTADO_PADRON = [
+  { id: "FALLECIDO", nombre: "Usuario fallecido", estado: "INACTIVO",
+    desc: "El contrato queda cerrado. Si hay saldo, permanece a su nombre hasta que un familiar lo gestione." },
+  { id: "MUDANZA", nombre: "Se mudó fuera del área de servicio", estado: "INACTIVO",
+    desc: "Ya no pertenece a ninguna comuna atendida por estos CDT." },
+  { id: "SUSPENDIDO", nombre: "Contrato suspendido", estado: "INACTIVO",
+    desc: "Suspensión administrativa. No puede solicitar hasta que se levante." },
+  { id: "INMUEBLE_DESOCUPADO", nombre: "Inmueble desocupado", estado: "INACTIVO",
+    desc: "El punto de servicio existe pero no está habitado." },
+  { id: "REACTIVACION", nombre: "Reactivación por solicitud del usuario", estado: "ACTIVO",
+    desc: "Vuelve a estar operativo sin esperar a que el reloj lo reactive solo." },
+  { id: "VERIFICADO", nombre: "Verificado en campo · sigue activo", estado: "ACTIVO",
+    desc: "Se confirmó que el punto está habitado aunque no haya comprado en meses." },
+];
+export const motivoEstadoPadron = (id) => MOTIVOS_ESTADO_PADRON.find((m) => m.id === id) || null;
+
+/**
+ * Estado del padrón. El reloj de 180 días es el criterio por defecto; una decisión
+ * humana lo sobreescribe y se nota que fue decisión — `manual: true` con su motivo,
+ * quién y cuándo, para que nadie tenga que adivinar por qué este código está inactivo
+ * si compró la semana pasada.
+ */
+export const estadoPadronDe = (u, sols = [], abonos = [], comunasSinJornada = new Set()) => {
+  const ultimo = ultimoMovimientoDe(u.id, sols, abonos);
+  const dias = ultimo ? diasEntre(ultimo, HOY) : null;
+  const pausado = comunasSinJornada.has(u.comuna);
+  const inactivo = dias != null && dias >= DIAS_INACTIVIDAD && !pausado;
+  const automatico = ultimo == null ? "SIN_MOVIMIENTO" : inactivo ? "INACTIVO" : "ACTIVO";
+  const m = u.estadoManual ? motivoEstadoPadron(u.estadoManual.motivo) : null;
+  return {
+    ultimoMovimiento: ultimo,
+    dias,
+    pausado,
+    estado: m ? m.estado : automatico,
+    estadoAutomatico: automatico,
+    manual: Boolean(m),
+    motivoManual: m,
+    definidoPor: u.estadoManual?.por || null,
+    definidoEn: u.estadoManual?.en || null,
+    notaManual: u.estadoManual?.nota || null,
+    diasParaInactivar: dias == null ? null : Math.max(0, DIAS_INACTIVIDAD - dias),
+  };
+};
+
 /* ── Usuarios. El primero es el que ve el portal. ── */
 export const USUARIOS = [
   { id: "4340817", nombre: "ELLARD QUERALES HURTADO", doc: "V-15.884.207", rifFactura: "Sin Datos",
     dir: "URB. EL OBELISCO, VEREDA 31 # 06", sector: "Parroquia Concepción, Barquisimeto", tel: "0414-552.18.90",
-    correo: "ellard.querales@gmail.com", cdt: "CDT-BQTO", comuna: "COM-BQTO-01", tipo: "Natural", uso: "RESIDENCIAL",
+    correo: "ellard.querales@gmail.com", cdt: "CDT-JL", comuna: "COM-BQTO-01", tipo: "Natural", uso: "RESIDENCIAL",
     contrato: "1170138", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2019, 2, 14), portal: true },
   { id: "4340912", nombre: "YOLIMAR ANDREINA GÓMEZ PÉREZ", doc: "V-17.822.361", rifFactura: "Sin Datos",
     dir: "BARRIO SAN JOSÉ, CALLE 18, CASA 42", sector: "Parroquia Catedral, Barquisimeto", tel: "0412-625.33.18",
-    correo: "yolimar.gomez@gmail.com", cdt: "CDT-BQTO", comuna: "COM-BQTO-01", tipo: "Natural", uso: "RESIDENCIAL",
+    correo: "yolimar.gomez@gmail.com", cdt: "CDT-JL", comuna: "COM-BQTO-01", tipo: "Natural", uso: "RESIDENCIAL",
     contrato: "1170411", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2020, 5, 2) },
   { id: "4341055", nombre: "JOSÉ ANTONIO PÉREZ RIVERO", doc: "V-9.442.100", rifFactura: "Sin Datos",
     dir: "CALLE BOLÍVAR 41, CABUDARE CENTRO", sector: "Parroquia José Gregorio Bastidas", tel: "0414-118.22.03",
-    correo: "japerez@gmail.com", cdt: "CDT-CABU", comuna: "COM-CABU-01", tipo: "Natural", uso: "RESIDENCIAL",
+    correo: "japerez@gmail.com", cdt: "CDT-JGI", comuna: "COM-CABU-01", tipo: "Natural", uso: "RESIDENCIAL",
     contrato: "1170622", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2018, 8, 19) },
   { id: "4341190", nombre: "CARLOS EDUARDO RIVAS MORA", doc: "V-16.455.677", rifFactura: "V-16.455.677",
     dir: "URB. NUEVA SEGOVIA, CARRERA 2, CASA 19", sector: "Zona Este, Barquisimeto", tel: "0414-254.88.30",
-    correo: "carlos.rivas@gmail.com", cdt: "CDT-BQTO", comuna: "COM-BQTO-01", tipo: "Natural", uso: "COMERCIAL",
+    correo: "carlos.rivas@gmail.com", cdt: "CDT-JL", comuna: "COM-BQTO-01", tipo: "Natural", uso: "COMERCIAL",
     contrato: "1170890", tipoContrato: "Bombona Comercial", condicionVenta: "CREDITO", desde: new Date(2021, 1, 8) },
   { id: "4341233", nombre: "U.E.B. SIMÓN RODRÍGUEZ", doc: "G-20009911-4", rifFactura: "G-20009911-4",
     dir: "SECTOR LA GUZMANA, CARORA", sector: "Parroquia Trinidad Samuel", tel: "0252-421.09.55",
-    correo: "ueb.simonrodriguez@mppe.gob.ve", cdt: "CDT-CARO", comuna: "COM-CARO-01", tipo: "Institución", uso: "INSTITUCIONAL",
+    correo: "ueb.simonrodriguez@mppe.gob.ve", cdt: "CDT-JL", comuna: "COM-CARO-01", tipo: "Institución", uso: "INSTITUCIONAL",
     contrato: "1171004", tipoContrato: "Granel Institucional", condicionVenta: "CREDITO", desde: new Date(2017, 3, 30) },
   { id: "4341388", nombre: "HÉCTOR MANUEL DÍAZ TORRES", doc: "V-12.220.336", rifFactura: "V-12.220.336",
     dir: "SECTOR TAMACA, CALLE PRINCIPAL, CASA 8", sector: "Parroquia Tamaca", tel: "0416-269.71.14",
-    correo: "hector.diaz@gmail.com", cdt: "CDT-BQTO", comuna: "COM-BQTO-01", tipo: "Natural", uso: "COMERCIAL",
+    correo: "hector.diaz@gmail.com", cdt: "CDT-JL", comuna: "COM-BQTO-01", tipo: "Natural", uso: "COMERCIAL",
     contrato: "1171255", tipoContrato: "Bombona Comercial", condicionVenta: "CONTADO", desde: new Date(2019, 10, 12) },
   { id: "4341470", nombre: "ROSA ELENA GIMÉNEZ", doc: "V-14.220.876", rifFactura: "Sin Datos",
     dir: "AV. FLORENCIO JIMÉNEZ 8, QUÍBOR", sector: "Municipio Jiménez", tel: "0426-550.31.77",
-    correo: "rosaegimenez@gmail.com", cdt: "CDT-QUIB", comuna: "COM-QUIB-01", tipo: "Natural", uso: "RESIDENCIAL",
-    contrato: "1171399", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2022, 6, 4) },
+    correo: "rosaegimenez@gmail.com", cdt: "CDT-JGI", comuna: "COM-QUIB-01", tipo: "Natural", uso: "RESIDENCIAL",
+    contrato: "1171399", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2022, 6, 4),
+    condicionTarifa: "EXONERADO", tarifaVence: new Date(2026, 11, 31), tarifaAval: "Oficio GC-2026-0184", tarifaAutorizadoPor: "Gerencia de Comercialización" },
   { id: "4341502", nombre: "MILAGROS DEL CARMEN PARRA VEGA", doc: "V-18.033.110", rifFactura: "V-18.033.110",
     dir: "AV. VENEZUELA, SECTOR AGUA VIVA, CASA 7", sector: "Parroquia Agua Viva", tel: "0412-262.18.40",
-    correo: "milagros.parra@gmail.com", cdt: "CDT-CABU", comuna: "COM-CABU-01", tipo: "Natural", uso: "COMERCIAL",
+    correo: "milagros.parra@gmail.com", cdt: "CDT-JGI", comuna: "COM-CABU-01", tipo: "Natural", uso: "COMERCIAL",
     contrato: "1171640", tipoContrato: "Bombona Comercial", condicionVenta: "CONTADO", desde: new Date(2020, 11, 1) },
   { id: "4341735", nombre: "AMBULATORIO RURAL DUACA", doc: "G-20077744-1", rifFactura: "G-20077744-1",
     dir: "AV. PRINCIPAL S/N, DUACA", sector: "Municipio Crespo", tel: "0251-880.44.21",
-    correo: "ambulatorioduaca@mpps.gob.ve", cdt: "CDT-BQTO", comuna: "COM-PEND-01", tipo: "Institución", uso: "INSTITUCIONAL",
-    contrato: "1171822", tipoContrato: "Granel Institucional", condicionVenta: "CONTADO", desde: new Date(2016, 7, 22) },
+    correo: "ambulatorioduaca@mpps.gob.ve", cdt: "CDT-JL", comuna: "COM-PEND-01", tipo: "Institución", uso: "INSTITUCIONAL",
+    contrato: "1171822", tipoContrato: "Granel Institucional", condicionVenta: "CONTADO", desde: new Date(2016, 7, 22),
+    condicionTarifa: "EXONERADO", tarifaVence: new Date(2027, 2, 31), tarifaAval: "Convenio MPPS-GL-2026-11", tarifaAutorizadoPor: "Gerencia General" },
   { id: "4341890", nombre: "CARMEN YOLANDA MENDOZA", doc: "V-11.902.447", rifFactura: "Sin Datos",
     dir: "BARRIO UNIÓN, CALLE 5, CASA 22", sector: "Parroquia Unión, Barquisimeto", tel: "0412-771.90.63",
-    correo: "cymendoza@gmail.com", cdt: "CDT-BQTO", comuna: "COM-BQTO-01", tipo: "Natural", uso: "RESIDENCIAL",
-    contrato: "1172010", tipoContrato: "Bombona Domicilio", condicionVenta: "CREDITO", desde: new Date(2021, 4, 17) },
+    correo: "cymendoza@gmail.com", cdt: "CDT-JL", comuna: "COM-BQTO-01", tipo: "Natural", uso: "RESIDENCIAL",
+    contrato: "1172010", tipoContrato: "Bombona Domicilio", condicionVenta: "CREDITO", desde: new Date(2021, 4, 17),
+    condicionTarifa: "PROTEGIDO", tarifaVence: new Date(2026, 10, 30), tarifaAval: "Registro social RS-04871", tarifaAutorizadoPor: "Consejo Comunal · validado por Comercialización" },
   { id: "4341954", nombre: "LUZ MARINA TORRES", doc: "V-13.771.540", rifFactura: "Sin Datos",
     dir: "URB. LA CARUCIEÑA, SECTOR 2, CASA 18", sector: "Parroquia Guerrera Ana Soto, Barquisimeto", tel: "0416-224.73.15",
-    correo: "luzmtorres@gmail.com", cdt: "CDT-BQTO", comuna: "COM-BQTO-01", tipo: "Natural", uso: "RESIDENCIAL",
+    correo: "luzmtorres@gmail.com", cdt: "CDT-JL", comuna: "COM-BQTO-01", tipo: "Natural", uso: "RESIDENCIAL",
     contrato: "1172148", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2023, 1, 9), sinActividadDemo: true },
   { id: "4342072", nombre: "NELLY JOSEFINA CASTILLO", doc: "V-10.604.782", rifFactura: "Sin Datos",
     dir: "BARRIO LA RUEZGA NORTE, CALLE 7, CASA 31", sector: "La Ruezga Norte, Barquisimeto", tel: "0414-390.11.84",
-    correo: "nelly.castillo@gmail.com", cdt: "CDT-BQTO", comuna: "COM-PEND-01", tipo: "Natural", uso: "RESIDENCIAL",
-    contrato: "1172274", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2022, 9, 11) },
+    correo: "nelly.castillo@gmail.com", cdt: "CDT-JL", comuna: "COM-PEND-01", tipo: "Natural", uso: "RESIDENCIAL",
+    contrato: "1172274", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2022, 9, 11),
+    condicionTarifa: "PROTEGIDO", tarifaVence: new Date(2027, 0, 31), tarifaAval: "Registro social RS-05122", tarifaAutorizadoPor: "Consejo Comunal · validado por Comercialización" },
   { id: "4342186", nombre: "MARÍA EUGENIA RODRÍGUEZ", doc: "V-15.328.441", rifFactura: "Sin Datos",
     dir: "BARRIO SAN JACINTO, CALLE 12, CASA 19", sector: "Barquisimeto", tel: "0412-518.44.20",
-    correo: "maria.rodriguez@gmail.com", cdt: "CDT-BQTO", comuna: "COM-BQTO-01", tipo: "Natural", uso: "RESIDENCIAL",
+    correo: "maria.rodriguez@gmail.com", cdt: "CDT-JL", comuna: "COM-BQTO-01", tipo: "Natural", uso: "RESIDENCIAL",
     contrato: "1172390", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2021, 2, 8) },
   { id: "4342298", nombre: "PEDRO LUIS HERNÁNDEZ", doc: "V-17.884.210", rifFactura: "Sin Datos",
     dir: "SECTOR PUEBLO NUEVO, CARRERA 4, CASA 6", sector: "Barquisimeto", tel: "0414-721.15.08",
-    correo: "pedrolhernandez@gmail.com", cdt: "CDT-BQTO", comuna: "COM-BQTO-01", tipo: "Natural", uso: "RESIDENCIAL",
+    correo: "pedrolhernandez@gmail.com", cdt: "CDT-JL", comuna: "COM-BQTO-01", tipo: "Natural", uso: "RESIDENCIAL",
     contrato: "1172451", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2020, 8, 20) },
   { id: "4342403", nombre: "YAMILETH COROMOTO SILVA", doc: "V-16.110.509", rifFactura: "Sin Datos",
     dir: "URB. LA MORA, AV. 2, CASA 14", sector: "Cabudare", tel: "0424-606.29.34",
-    correo: "yamileth.silva@gmail.com", cdt: "CDT-CABU", comuna: "COM-CABU-01", tipo: "Natural", uso: "RESIDENCIAL",
+    correo: "yamileth.silva@gmail.com", cdt: "CDT-JGI", comuna: "COM-CABU-01", tipo: "Natural", uso: "RESIDENCIAL",
     contrato: "1172526", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2022, 0, 16) },
   { id: "4342517", nombre: "LUIS ALBERTO FLORES", doc: "V-19.408.770", rifFactura: "V-19.408.770",
     dir: "SECTOR LA PIEDAD, CALLE 3, CASA 11", sector: "Cabudare", tel: "0416-881.07.62",
-    correo: "luisaflores@gmail.com", cdt: "CDT-CABU", comuna: "COM-CABU-01", tipo: "Natural", uso: "COMERCIAL",
+    correo: "luisaflores@gmail.com", cdt: "CDT-JGI", comuna: "COM-CABU-01", tipo: "Natural", uso: "COMERCIAL",
     contrato: "1172674", tipoContrato: "Bombona Comercial", condicionVenta: "CONTADO", desde: new Date(2019, 5, 12) },
   { id: "4342631", nombre: "ANA TERESA GUTIÉRREZ", doc: "V-9.772.518", rifFactura: "Sin Datos",
     dir: "SECTOR ROBLE VIEJO, CALLE PRINCIPAL, CASA 23", sector: "Carora", tel: "0412-744.20.18",
-    correo: "anaguti@gmail.com", cdt: "CDT-CARO", comuna: "COM-CARO-01", tipo: "Natural", uso: "RESIDENCIAL",
+    correo: "anaguti@gmail.com", cdt: "CDT-JL", comuna: "COM-CARO-01", tipo: "Natural", uso: "RESIDENCIAL",
     contrato: "1172748", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2020, 3, 1) },
   { id: "4342745", nombre: "JOSÉ GREGORIO MEDINA", doc: "V-14.506.203", rifFactura: "Sin Datos",
     dir: "BARRIO NUEVO, CALLE SUCRE, CASA 5", sector: "Carora", tel: "0426-337.58.19",
-    correo: "josegmedina@gmail.com", cdt: "CDT-CARO", comuna: "COM-CARO-01", tipo: "Natural", uso: "RESIDENCIAL",
+    correo: "josegmedina@gmail.com", cdt: "CDT-JL", comuna: "COM-CARO-01", tipo: "Natural", uso: "RESIDENCIAL",
     contrato: "1172813", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2023, 4, 6) },
   { id: "4342859", nombre: "DILIA MARGARITA VARGAS", doc: "V-12.894.770", rifFactura: "Sin Datos",
     dir: "SECTOR EL JEBE, CALLE 6, CASA 17", sector: "Quíbor", tel: "0414-260.90.11",
-    correo: "diliavargas@gmail.com", cdt: "CDT-QUIB", comuna: "COM-QUIB-01", tipo: "Natural", uso: "RESIDENCIAL",
-    contrato: "1172970", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2021, 10, 13) },
+    correo: "diliavargas@gmail.com", cdt: "CDT-JGI", comuna: "COM-QUIB-01", tipo: "Natural", uso: "RESIDENCIAL",
+    contrato: "1172970", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2021, 10, 13),
+    condicionTarifa: "PROTEGIDO", tarifaVence: new Date(2026, 5, 30), tarifaAval: "Registro social RS-03908", tarifaAutorizadoPor: "Consejo Comunal · validado por Comercialización" },
   { id: "4342972", nombre: "RAMÓN EDUARDO PÉREZ", doc: "V-18.306.441", rifFactura: "Sin Datos",
     dir: "SECTOR LA ERMITA, AV. 3, CASA 9", sector: "Quíbor", tel: "0416-117.28.52",
-    correo: "ramonperez@gmail.com", cdt: "CDT-QUIB", comuna: "COM-QUIB-01", tipo: "Natural", uso: "RESIDENCIAL",
+    correo: "ramonperez@gmail.com", cdt: "CDT-JGI", comuna: "COM-QUIB-01", tipo: "Natural", uso: "RESIDENCIAL",
     contrato: "1173044", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2022, 7, 18) },
   { id: "4343084", nombre: "GLADYS DEL VALLE LÓPEZ", doc: "V-13.215.660", rifFactura: "Sin Datos",
     dir: "LA RUEZGA NORTE, VEREDA 2, CASA 15", sector: "La Ruezga Norte, Barquisimeto", tel: "0412-326.14.89",
-    correo: "gladyslopez@gmail.com", cdt: "CDT-BQTO", comuna: "COM-PEND-01", tipo: "Natural", uso: "RESIDENCIAL",
+    correo: "gladyslopez@gmail.com", cdt: "CDT-JL", comuna: "COM-PEND-01", tipo: "Natural", uso: "RESIDENCIAL",
     contrato: "1173182", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2021, 9, 3) },
   { id: "4343196", nombre: "MIGUEL ÁNGEL CASTRO", doc: "V-20.119.834", rifFactura: "Sin Datos",
     dir: "LA RUEZGA NORTE, CALLE 9, CASA 27", sector: "La Ruezga Norte, Barquisimeto", tel: "0424-745.62.40",
-    correo: "miguelacastro@gmail.com", cdt: "CDT-BQTO", comuna: "COM-PEND-01", tipo: "Natural", uso: "RESIDENCIAL",
+    correo: "miguelacastro@gmail.com", cdt: "CDT-JL", comuna: "COM-PEND-01", tipo: "Natural", uso: "RESIDENCIAL",
     contrato: "1173269", tipoContrato: "Bombona Domicilio", condicionVenta: "CONTADO", desde: new Date(2024, 0, 21) },
 ];
-export const usr = (id) => USUARIOS.find((u) => u.id === id) || USUARIOS[0];
+/* ═══════════════════════════════════════════════════════════════════
+   REGLAS DE OPERACIÓN DEFINIDAS POR LA GERENCIA · 01/09/2026
+   Estas ocho decisiones gobiernan todo el ciclo y están implementadas
+   en los puntos que se indican.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* 1 · MOMENTO DE LA VENTA
+   La venta ocurre al despachar desde planta al consejo comunal o punto de distribución.
+   La comuna actúa como CONSIGNATARIO: recibe mercancía en custodia. Si no entrega,
+   responde ante la empresa — no el usuario ante la comuna.
+   La factura se emite al despachar.  →  ver `consignacionesDe()` y `entregar()` */
+
+/* 2 · PRECIO APLICABLE
+   Manda el precio del día del DESPACHO, no el del pedido. Siendo tarifa regulada por
+   gaceta, cambia por resolución y no a diario, así que la ventana de riesgo es baja.
+   →  `montos()` se invoca con la fecha de despacho al facturar */
+
+/* 3 · ENVASE
+   No se entrega sin envase. El intercambio vacío-por-lleno es la norma.
+   Sin cilindro vacío no hay despacho. No existe depósito ni recargo: el usuario debe
+   tener su bombona o adquirirla aparte.  →  ver PARQUE DE ENVASES */
+export const EXIGE_ENVASE_PARA_CANJE = true;
+
+/* 4 · CILINDRO DEFECTUOSO
+   Reposición física, canje 1:1 de envase. Se retira el defectuoso, se entrega uno
+   operativo y el retirado entra a taller de reacondicionamiento.
+   No hay abono monetario y el GLP no se libera.  →  ver MOTIVOS_NO_ENTREGA */
+
+/* 5 · FORMATO NO DISPONIBLE
+   No se entrega un formato por otro. El regulador fija precio por formato, no por kilo,
+   así que sustituir un 18 kg por un 10 kg no tiene base legal clara.
+   Se espera al tamaño correcto.  →  `validarCanje()` */
+export const FORMATOS_INTERCAMBIABLES = false;
+
+/* 6 · CANCELACIÓN · EL SALDO NO SALE EN EFECTIVO
+   El usuario puede cancelar antes de la entrega, pero la empresa no reembolsa. Todo dinero
+   que entra queda abonado al código del usuario y sólo se descarga contra un despacho
+   posterior. No hay caja de salida, no hay reintegro por taquilla.
+
+   Esto no es una restricción del prototipo: es la regla de operación. Y simplifica el
+   control, porque el saldo a favor sólo puede moverse en una dirección.
+   →  `MOTIVOS_NO_ENTREGA.CANCELADO`, `TIPOS_ABONO` (ningún tipo con signo negativo) */
+export const PERMITE_REEMBOLSO = false;
+
+/* 7 · TOPE POR CICLO
+   Una bombona por núcleo familiar por ciclo de distribución (mensual). El consejo
+   comunal lleva el censo y controla. Sin tope hay acaparamiento y reventa. */
+export const TOPE_BOMBONAS_CICLO = 1;
+export const cicloDistribucion = (d = HOY) => {
+  const v = d instanceof Date ? d : new Date(d);
+  return Number.isNaN(v.getTime()) ? "—" : `${v.getFullYear()}-${String(v.getMonth()).padStart(2, "0")}`;
+};
+
+/* 8 · PAGO ANTES DEL COMPROMISO
+   Pago verificado → reserva de inventario → despacho. Una solicitud sin verificar
+   no compromete GLP.  →  `esCompromisoInventario()` exige pago VERIFICADO */
+export const ESTADOS_PAGO = [
+  { id: "SIN_PAGO", nombre: "Sin pago", reserva: false, enBandeja: false, color: "#6B7B85",
+    desc: "No ha reportado ningún pago. No hay nada que conciliar." },
+  { id: "POR_CONCILIAR", nombre: "Por conciliar", reserva: false, enBandeja: true, color: "#9A6410",
+    desc: "Reportó referencia pero la conciliación automática no pudo casarla" },
+  { id: "VERIFICADO", nombre: "Verificado", reserva: true, enBandeja: false, color: "#1B7A4C",
+    desc: "Casado contra el banco · el GLP queda reservado" },
+  { id: "RECHAZADO", nombre: "Rechazado", reserva: false, enBandeja: false, color: "#A83E3E",
+    desc: "La referencia no cruza con el banco o fue descartada" },
+  { id: "NO_APLICA", nombre: "No aplica", reserva: false, enBandeja: false, color: "#516069",
+    desc: "Despacho exonerado, de apoyo o programa social" },
+];
+export const estadoPago = (id) => ESTADOS_PAGO.find((e) => e.id === id) || ESTADOS_PAGO[0];
+
+/* ═══════════  CANALES DE COBRO  ═══════════
+   No todo pago se concilia contra el banco. El efectivo que recauda la planta móvil o la
+   jornada comunal se controla por arqueo de caja: no hay referencia que ninguna API pueda
+   consultar. Distinguirlos evita mandar a una bandeja bancaria algo que nunca pasó por un banco. */
+export const CANALES_PAGO = [
+  { id: "PORTAL", nombre: "Portal / app", conciliable: true, tiempoReal: false,
+    desc: "Transferencia reportada por el usuario · se casa contra el movimiento bancario" },
+  { id: "PAGO_MOVIL", nombre: "Pago móvil C2P", conciliable: true, tiempoReal: true,
+    desc: "Confirmación en tiempo real: la operación nace casada" },
+  { id: "COMUNAL", nombre: "Recaudo comunal", conciliable: true, tiempoReal: false,
+    desc: "El consejo comunal reúne los pagos y transfiere el consolidado" },
+  { id: "TAQUILLA", nombre: "Taquilla del CDT", conciliable: true, tiempoReal: true,
+    desc: "Cobrado en el punto, con comprobante inmediato" },
+  { id: "EFECTIVO", nombre: "Efectivo en campo", conciliable: false, tiempoReal: true,
+    desc: "Planta móvil y jornadas · se controla por arqueo de caja, no por conciliación bancaria" },
+];
+export const canalPago = (id) => CANALES_PAGO.find((c) => c.id === id) || CANALES_PAGO[0];
+
+/* ═══════════  REGLAS DE PAGO · RESOLUCIÓN AUTOMÁTICA  ═══════════
+   Estas reglas son deterministas. Si se pueden escribir, se pueden aplicar solas:
+   poner a una persona a pulsar un botón para ejecutar una decisión ya tomada no es
+   control, es fricción.
+
+   La API las aplica al recibir el pago y la solicitud queda resuelta sin intervención.
+   Comercialización no aprueba nada: consulta la bitácora de lo que se resolvió y puede
+   revertir un caso concreto si el usuario reclama. */
+
+export const REGLAS_PAGO = [
+  { id: "EXACTO", nombre: "Monto exacto", severidad: "ok",
+    efecto: "Se verifica y el GLP queda reservado",
+    desc: "El monto y la referencia cuadran con el movimiento bancario." },
+  { id: "MONTO_MAYOR", nombre: "Transfirió de más", severidad: "baja",
+    efecto: "Se verifica y el excedente se abona al código",
+    desc: "El pedido queda cubierto y la diferencia le queda a favor para la próxima compra." },
+  { id: "MONTO_MENOR", nombre: "Transfirió de menos", severidad: "media",
+    efecto: "Se abona lo recibido y la solicitud se cancela",
+    desc: "No alcanza para el pedido y no hay entrega parcial. El dinero queda a su favor hasta que complete." },
+  { id: "REFERENCIA_DUPLICADA", nombre: "Referencia ya utilizada", severidad: "alta",
+    efecto: "Se rechaza la solicitud",
+    desc: "Esa referencia ya respalda otro pedido. Puede ser error del usuario o intento de duplicar." },
+];
+export const reglaPago = (id) => REGLAS_PAGO.find((r) => r.id === id) || REGLAS_PAGO[0];
+
+/**
+ * Aplica la regla que corresponde a un pago. Devuelve el estado en que queda la
+ * solicitud y el abono que se genera, si lo hay. No pregunta nada a nadie.
+ */
+export const aplicarReglaPago = ({ montoRecibido, totalFacturado, referencia, referenciasVistas }) => {
+  const recibido = Number(montoRecibido || 0);
+  const facturado = Number(totalFacturado || 0);
+
+  if (referencia && referenciasVistas?.has(referencia)) {
+    return { regla: "REFERENCIA_DUPLICADA", estadoPago: "RECHAZADO", estadoSolicitud: "SIN_PAGO",
+      abono: null, detalle: `La referencia ${referencia} ya respalda otra solicitud` };
+  }
+  if (recibido < facturado - 0.01) {
+    return { regla: "MONTO_MENOR", estadoPago: "RECHAZADO", estadoSolicitud: ESTADO_ABONADA,
+      abono: { tipo: "ABONO_EXCEDENTE", monto: recibido },
+      detalle: `Recibió Bs ${bs(recibido)} de Bs ${bs(facturado)} · se abona y se cancela` };
+  }
+  if (recibido > facturado + 0.01) {
+    return { regla: "MONTO_MAYOR", estadoPago: "VERIFICADO", estadoSolicitud: "PAGADA",
+      abono: { tipo: "ABONO_EXCEDENTE", monto: Number((recibido - facturado).toFixed(2)) },
+      detalle: `Recibió Bs ${bs(recibido)} sobre Bs ${bs(facturado)} · excedente de Bs ${bs(recibido - facturado)} abonado` };
+  }
+  return { regla: "EXACTO", estadoPago: "VERIFICADO", estadoSolicitud: "PAGADA", abono: null,
+    detalle: "Monto y referencia cuadran" };
+};
+
+/** Bitácora de lo que las reglas resolvieron solas, para auditar sin aprobar. */
+export const bitacoraPagos = (sols = []) => {
+  const conPago = sols.filter((s) => s.pago?.regla);
+  const noTriviales = conPago.filter((s) => s.pago.regla !== "EXACTO");
+  const conPagoReal = sols.filter((s) => s.pago && !["NO_APLICA", "SIN_PAGO"].includes(s.pago.estado));
+  return {
+    total: conPago.length,
+    exactos: conPago.filter((s) => s.pago.regla === "EXACTO").length,
+    resueltas: noTriviales,
+    efectivo: conPagoReal.filter((s) => !canalPago(s.pago.canal).conciliable).length,
+    revertidas: sols.filter((s) => s.pago?.revertida).length,
+    tasaAuto: conPago.length ? ((conPago.length - sols.filter((s) => s.pago?.revertida).length) / conPago.length) * 100 : 100,
+    porRegla: REGLAS_PAGO.filter((r) => r.id !== "EXACTO").map((r) => ({
+      ...r, total: noTriviales.filter((s) => s.pago.regla === r.id).length,
+      monto: noTriviales.filter((s) => s.pago.regla === r.id)
+        .reduce((a, s) => a + Number(s.pago.montoRecibido ?? s.total ?? 0), 0),
+    })).filter((r) => r.total > 0),
+  };
+};
+
+/* ── Lo que la regla NO puede cerrar sola ──────────────────────────────────
+   La regla decide sobre un pago aislado: llegó tanto, cuadra o no cuadra. Lo que no
+   puede ver es el patrón entre varios pagos. Eso es lo único que se le pone delante a
+   una persona, y con el caso ya armado: quién, cuánto y qué hacer.
+
+   Un rechazo suelto no es un patrón — ya se resolvió. Los umbrales de abajo separan
+   el error de tecleo (una vez, se corrige solo) de la conducta (se repite). */
+export const patronesSospechosos = (sols = []) => {
+  const hallazgos = [];
+  const porRef = {};
+  sols.filter((s) => s.pago?.referencia).forEach((s) => { (porRef[s.pago.referencia] ||= []).push(s); });
+
+  Object.entries(porRef).forEach(([ref, v]) => {
+    if (v.length < 2) return;
+    const codigos = [...new Set(v.map((s) => s.usuario))];
+    if (codigos.length > 1) {
+      /* La misma referencia bancaria reportada por códigos distintos no es un error de
+         tecleo: alguien está pasando un comprobante ajeno. Vale nombrar a los dos lados. */
+      const legitima = v.find((s) => s.pago.estado === "VERIFICADO");
+      hallazgos.push({
+        id: `PAT-REF-${ref}`, tipo: "REFERENCIA_COMPARTIDA", severidad: "alta",
+        titulo: `Referencia ${ref} reportada por ${codigos.length} códigos distintos`,
+        detalle: legitima
+          ? `El pago respalda a ${legitima.usuario}. Los demás la reportaron después y fueron rechazados.`
+          : `Ningún reporte de esta referencia pudo verificarse contra el banco.`,
+        accion: "Confirmar el comprobante original con el titular antes de liberar nada",
+        solicitudes: v, usuarios: codigos,
+      });
+    } else if (v.length >= 3) {
+      /* El mismo código insistiendo con su propia referencia: no es fraude, es una
+         persona trancada. La regla la rechaza otra vez y nadie la ayuda. */
+      hallazgos.push({
+        id: `PAT-INS-${ref}`, tipo: "REINTENTO_INSISTENTE", severidad: "media",
+        titulo: `${codigos[0]} reportó la misma referencia ${v.length} veces`,
+        detalle: "La regla rechazó cada intento. Probablemente no entiende por qué.",
+        accion: "Llamar y verificar el comprobante: puede ser un pago real mal reportado",
+        solicitudes: v, usuarios: codigos,
+      });
+    }
+  });
+
+  /* Un código con rechazos repetidos en el mismo ciclo: o tiene un problema de datos
+     o está probando. En cualquiera de los dos casos hay que hablarle.
+
+     Si ya salió arriba insistiendo con un solo comprobante, no se repite aquí: sería
+     el mismo caso contado dos veces, y el operador terminaría llamando dos veces a la
+     misma persona por lo mismo. */
+  const yaCubierto = new Set(
+    hallazgos.filter((h) => h.tipo === "REINTENTO_INSISTENTE")
+      .map((h) => `${h.usuarios[0]}|${h.solicitudes.map((s) => s.id).sort().join(",")}`)
+  );
+  const porUsuario = {};
+  sols.filter((s) => s.pago?.estado === "RECHAZADO").forEach((s) => {
+    (porUsuario[s.usuario] ||= []).push(s);
+  });
+  Object.entries(porUsuario).filter(([, v]) => v.length >= 2).forEach(([uid, v]) => {
+    if (yaCubierto.has(`${uid}|${v.map((s) => s.id).sort().join(",")}`)) return;
+    hallazgos.push({
+      id: `PAT-RECH-${uid}`, tipo: "RECHAZOS_REPETIDOS", severidad: "media",
+      titulo: `${uid} acumula ${v.length} pagos rechazados en el ciclo`,
+      detalle: [...new Set(v.map((s) => reglaPago(s.pago.regla).nombre))].join(" · "),
+      accion: "Revisar el registro del usuario y contactarlo",
+      solicitudes: v, usuarios: [uid],
+    });
+  });
+
+  const orden = { alta: 0, media: 1, baja: 2 };
+  return hallazgos.sort((a, b) => orden[a.severidad] - orden[b.severidad]);
+};
+
+/* ═══════════  CÓMO ES LA JORNADA  ═══════════
+   La gente lleva su bombona vacía al punto comunal. El operador las recoge, se las lleva
+   a la planta, las llena y las vuelve a dejar en el mismo punto. Si se lleva diez,
+   regresan diez.
+
+   El camión NO sale del CDT cargado con bombonas llenas: sale a recoger. Por eso el
+   cuadre de la jornada no es «planificado contra entregado» sino **recogidas contra
+   devueltas llenas**, y la única diferencia legítima son las bombonas que no se pudieron
+   llenar porque estaban malas.
+
+   De ahí que las incidencias tengan dos momentos distintos:
+     ANTES del AD   ·  sólo una cosa: pagó o no pagó. Eso decide quién entra.
+     EN EL SITIO    ·  quién llevó su bombona, cuáles volvieron llenas y cuáles no
+                       se pudieron llenar.
+   Adelantar un hallazgo de sitio a la planificación es inventarse un dato. */
+
+/* ═══════════  MOTIVOS TIPIFICADOS DE NO ENTREGA  ═══════════
+   Cada motivo tiene una consecuencia distinta. Esto es lo que permite marcar a una
+   persona concreta de las ciento y pico que lleva la AD, y que esa marca produzca el
+   efecto correcto en vez de un texto libre que nadie procesa. */
+export const MOTIVOS_NO_ENTREGA = [
+  { id: "NO_ESTABA", nombre: "No se encontraba", consecuencia: "ABONO", liberaGlp: true,
+    desc: "Nadie recibió en el punto. El dinero pasa a su saldo a favor." },
+  { id: "SIN_ENVASE", nombre: "No llevó su bombona al punto", consecuencia: "ABONO", liberaGlp: true,
+    desc: "No hubo qué recoger. Sin bombona no hay nada que llenar ni que devolver." },
+  { id: "FORMATO_NO_DISPONIBLE", nombre: "Formato no disponible en la unidad", consecuencia: "ABONO", liberaGlp: true,
+    desc: "No se sustituye un formato por otro: el precio es por formato." },
+  { id: "DIRECCION_NO_UBICADA", nombre: "Dirección no ubicada", consecuencia: "ABONO", liberaGlp: true, marcaPadron: true,
+    desc: "Marca el registro para verificación de datos." },
+  { id: "RECHAZO", nombre: "Rechazó la entrega", consecuencia: "ABONO", liberaGlp: true,
+    desc: "El usuario desistió en el momento." },
+  { id: "CANCELADO", nombre: "Cancelado por el usuario", consecuencia: "ABONO", liberaGlp: true,
+    desc: "Canceló antes de la entrega. Queda saldo para el próximo despacho." },
+  /* La bombona se recogió pero estaba mala y no se pudo llenar. No hay reposición en el
+     momento: vuelve vacía, el envase entra a taller y el dinero le queda abonado. El GLP
+     se libera porque nunca llegó a cargarse. Es la única diferencia legítima entre lo
+     que se recoge y lo que se devuelve lleno. */
+  { id: "DEFECTUOSO", nombre: "Bombona mala · no se pudo llenar", consecuencia: "ABONO", liberaGlp: true,
+    envaseATaller: true,
+    desc: "Se recogió pero no admite llenado. Vuelve vacía, entra a taller y se abona el dinero." },
+];
+export const motivoNoEntrega = (id) => MOTIVOS_NO_ENTREGA.find((m) => m.id === id) || MOTIVOS_NO_ENTREGA[0];
+
+/* ═══════════  INCIDENCIAS ANTES DEL DESPACHO  ═══════════
+   Los motivos de arriba los marca el operador en la calle, sobre una entrega que se
+   intentó. Estos son otra cosa: la solicitud está pagada y todavía no ha salido a ruta,
+   así que nadie fue a ninguna parte. Decir aquí «no se encontraba en el punto» sería
+   mentir en el expediente.
+
+   La diferencia que importa no es el texto sino la consecuencia. Hay incidencias que
+   cierran la solicitud y devuelven el dinero al saldo, y hay otras que NO la cierran:
+   el pedido sigue vivo y lo que cambia es el registro del usuario o la programación.
+   Meterlas todas en un mismo botón que siempre abona era el error anterior.
+
+     CIERRA   · la solicitud pasa a ABONADA, el GLP se libera y el dinero va al saldo
+     RETIENE  · la solicitud sigue pendiente; se deja constancia y se reprograma  */
+export const INCIDENCIAS_PREVIAS = [
+  { id: "CANCELO_USUARIO", nombre: "El usuario canceló el pedido", consecuencia: "CIERRA",
+    grupo: "El usuario", liberaGlp: true,
+    desc: "Desistió antes de que saliera a ruta. El dinero queda a su favor para la próxima compra." },
+  { id: "CAMBIO_FORMATO", nombre: "Quiere otro formato de bombona", consecuencia: "CIERRA",
+    grupo: "El usuario", liberaGlp: true,
+    desc: "El precio es por formato, no por kilo: no se sustituye una por otra. Se cierra esta y pide la correcta con su saldo." },
+  { id: "DUPLICADA", nombre: "Pidió dos veces lo mismo", consecuencia: "CIERRA",
+    grupo: "El usuario", liberaGlp: true,
+    desc: "Solicitud repetida. Se cierra una y ese dinero queda a su favor." },
+  { id: "SE_MUDO", nombre: "Se mudó fuera del área de servicio", consecuencia: "CIERRA",
+    grupo: "El usuario", liberaGlp: true, marcaPadron: true,
+    desc: "Marca el registro. El saldo queda a su nombre: no se reembolsa, pero tampoco se pierde." },
+
+  { id: "SIN_ENVASE_VIGENTE", nombre: "No tiene envase para el canje", consecuencia: "RETIENE",
+    grupo: "El envase",
+    desc: "Su cilindro está en taller o fue retirado de servicio. El pedido espera hasta que tenga uno del formato correcto." },
+
+  { id: "SIN_EXISTENCIA", nombre: "No hay existencia del formato", consecuencia: "RETIENE",
+    grupo: "La empresa",
+    desc: "Falta de inventario. No es imputable al usuario: el pedido se mantiene y se reprograma." },
+  { id: "SIN_JORNADA", nombre: "Su comuna no tiene jornada programada", consecuencia: "RETIENE",
+    grupo: "La empresa",
+    desc: "Nadie ha planificado ruta a ese sector. Se mantiene y se escala a Distribución." },
+  { id: "DATOS_ERRADOS", nombre: "Datos de contacto o dirección incorrectos", consecuencia: "RETIENE",
+    grupo: "La empresa", marcaPadron: true,
+    desc: "Marca el registro para verificación. El pedido no se cierra: primero se corrigen los datos." },
+
+  { id: "ERROR_TAQUILLA", nombre: "Se registró por error en taquilla", consecuencia: "CIERRA",
+    grupo: "Corrección", liberaGlp: true,
+    desc: "Error de quien la cargó a mano. Se anula y el dinero vuelve al saldo del usuario." },
+  { id: "CONCEPTO_ERRADO", nombre: "Se cargó el concepto equivocado", consecuencia: "CIERRA",
+    grupo: "Corrección", liberaGlp: true,
+    desc: "Se facturaría algo distinto de lo que el usuario pidió. Se cierra y se registra de nuevo." },
+];
+export const incidenciaPrevia = (id) => INCIDENCIAS_PREVIAS.find((m) => m.id === id) || INCIDENCIAS_PREVIAS[0];
+export const gruposIncidenciaPrevia = () =>
+  [...new Set(INCIDENCIAS_PREVIAS.map((i) => i.grupo))]
+    .map((g) => ({ grupo: g, items: INCIDENCIAS_PREVIAS.filter((i) => i.grupo === g) }));
+
+/* ═══════════  PARQUE DE ENVASES  ═══════════
+   El cilindro es activo de la empresa y va y viene. Sin registrarlo no se puede exigir
+   el canje ni saber dónde están miles de envases. */
+export const ESTADOS_ENVASE = [
+  { id: "EN_USUARIO", nombre: "En poder del usuario", color: "#2A5FA6" },
+  { id: "EN_PLANTA_VACIO", nombre: "En planta · vacío", color: "#6B7B85" },
+  { id: "EN_PLANTA_LLENO", nombre: "En planta · lleno", color: "#1B7A4C" },
+  { id: "EN_TRANSITO", nombre: "En tránsito", color: "#9A6410" },
+  { id: "EN_TALLER", nombre: "En taller de reacondicionamiento", color: "#A83E3E" },
+  { id: "RETIRADO", nombre: "Retirado de servicio", color: "#3A464E" },
+];
+export const estadoEnvase = (id) => ESTADOS_ENVASE.find((e) => e.id === id) || ESTADOS_ENVASE[0];
+
+/** Serial determinístico del envase, para que el mismo usuario tenga siempre el mismo. */
+export const serialEnvase = (usuarioId, kg, i = 0) =>
+  `ENV-${kg}-${String(Math.abs(hashTexto(`${usuarioId}-${kg}-${i}`)) % 900000 + 100000)}`;
+
+function hashTexto(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; }
+  return h;
+}
+
+/** ¿Tiene el usuario un envase del tamaño requerido para hacer el canje? */
+export const validarCanje = (parqueUsuario = [], kgRequerido) => {
+  if (!EXIGE_ENVASE_PARA_CANJE) return { ok: true, envase: null };
+  const apto = parqueUsuario.find((e) => e.kg === kgRequerido && e.estado === "EN_USUARIO");
+  if (apto) return { ok: true, envase: apto };
+  const otroTamano = parqueUsuario.find((e) => e.estado === "EN_USUARIO");
+  return {
+    ok: false, envase: null,
+    motivo: otroTamano
+      ? `Solo tiene envase de ${otroTamano.kg} kg y el pedido es de ${kgRequerido} kg. Los formatos no son intercambiables.`
+      : "No tiene envase vacío registrado para el canje.",
+  };
+};
+
+/* ═══════════  CÓDIGO GENÉRICO · VENTAS SIN CONTRATO  ═══════════
+   Hay ventas reales a personas sin código: en planta, en planta móvil y en jornadas.
+   Hoy quedan fuera del sistema, y lo que queda fuera del sistema es lo que no se controla.
+   Se formalizan con un código genérico por CDT y por tamaño de cilindro.
+
+   Controles que evitan que el genérico se convierta en el destino de todo lo que no se
+   quiere justificar: se exige identificación del comprador aunque no tenga contrato,
+   hay tope por transacción y el sistema alerta cuando el genérico supera un porcentaje
+   del despacho total. */
+export const TOPE_UNIDADES_GENERICO = 4;
+export const UMBRAL_ALERTA_GENERICO = 0.15; // 15% del despacho del período
+
+export const CODIGOS_GENERICOS = [
+  ...CDTS.flatMap((c) =>
+    [10, 18, 27, 43].map((kg) => ({
+      id: `GEN-${c.id.replace("CDT-", "")}-${kg}`,
+      nombre: `Consumidor final · ${c.corto} · Bombona ${kg} kg`,
+      corto: `Genérico ${kg} kg · ${c.corto}`,
+      cdt: c.id, kg, concepto: `BOMB_${kg}`, canal: "PLANTA",
+    }))
+  ),
+  ...CDTS.map((c) => ({
+    id: `GEN-${c.id.replace("CDT-", "")}-GRAN`,
+    nombre: `Consumidor final granel · ${c.corto}`,
+    corto: `Genérico granel · ${c.corto}`,
+    cdt: c.id, kg: 1, concepto: "GRAN_COM", canal: "GRANEL",
+  })),
+];
+export const codigoGenerico = (id) => CODIGOS_GENERICOS.find((g) => g.id === id) || null;
+export const esCodigoGenerico = (id) => String(id || "").startsWith("GEN-");
+
+/** Usuario sintético para que una venta sin contrato pueda facturarse y entrar al libro. */
+const usuarioDesdeGenerico = (g) => ({
+  id: g.id, nombre: g.nombre, doc: "Consumidor final", rifFactura: "V-00000000",
+  dir: "Venta directa sin contrato", sector: cdtOf(g.cdt).sector || "—", tel: "—", correo: "—",
+  cdt: g.cdt, comuna: null, tipo: "Natural", uso: g.canal === "GRANEL" ? "COMERCIAL" : "RESIDENCIAL",
+  contrato: "SIN CONTRATO", tipoContrato: "Venta directa", condicionVenta: "CONTADO",
+  condicionTarifa: "REGULAR", desde: null, generico: true, canal: g.canal,
+});
+
+/* ═══════════  REGISTRO DE BENEFICIARIOS DE RUTA  ═══════════
+   Las personas de las comunidades planificadas también son usuarios del sistema:
+   piden, pagan, tienen envase y reciben factura. Antes vivían como listas sueltas
+   dentro de Distribución, desconectadas del padrón, lo que producía dos universos de
+   datos que no compartían ni un identificador. Este registro los unifica. */
+const REGISTRO_BENEFICIARIOS = new Map();
+
+export const registrarBeneficiario = (b) => {
+  if (!REGISTRO_BENEFICIARIOS.has(b.id)) REGISTRO_BENEFICIARIOS.set(b.id, b);
+  return REGISTRO_BENEFICIARIOS.get(b.id);
+};
+export const beneficiario = (id) => REGISTRO_BENEFICIARIOS.get(id) || null;
+export const totalBeneficiarios = () => REGISTRO_BENEFICIARIOS.size;
+
+const usuarioDesdeBeneficiario = (b) => ({
+  id: b.id, nombre: b.nombre, doc: b.cedula, rifFactura: b.cedula,
+  dir: `${b.comunidad || "—"}, ${b.parroquia || "—"}`, sector: b.comunidad || "—",
+  tel: "—", correo: "—", cdt: b.cdt || CDTS[0].id, comuna: b.comunaId || null,
+  comunidad: b.comunidad, parroquia: b.parroquia, rutaId: b.rutaId,
+  tipo: "Natural", uso: b.segmento || "RESIDENCIAL",
+  contrato: b.contrato, tipoContrato: "Bombona Domicilio",
+  condicionVenta: "CONTADO", condicionTarifa: "REGULAR",
+  desde: null, beneficiarioRuta: true,
+});
+
+export const usr = (id) => {
+  const u = USUARIOS.find((x) => x.id === id);
+  if (u) return u;
+  const b = REGISTRO_BENEFICIARIOS.get(id);
+  if (b) return usuarioDesdeBeneficiario(b);
+  const g = codigoGenerico(id);
+  return g ? usuarioDesdeGenerico(g) : USUARIOS[0];
+};
 export const segmentoUsuario = (uOrId) => {
   const u = typeof uOrId === "string" ? usr(uOrId) : uOrId;
   if (u.uso) return u.uso;
@@ -207,8 +826,14 @@ export const CLIENTE_PORTAL = USUARIOS[0];
    Los pagos se verifican automáticamente contra el banco, así que la
    solicitud nace pagada y entra directo a la cola de distribución. */
 export const FASES = [
-  { key: "PAGADA", admin: "Pagada", cliente: "Pago verificado",
-    adminDesc: "Pago conciliado automáticamente, sin AD asignada",
+  { key: "SIN_PAGO", admin: "Sin pago", cliente: "Falta tu pago",
+    adminDesc: "Registrada en el padrón sin pago reportado · no reserva GLP",
+    clienteDesc: "Reporta tu transferencia para entrar a la próxima jornada" },
+  { key: "POR_CONCILIAR", admin: "Por conciliar", cliente: "Verificando tu pago",
+    adminDesc: "Referencia reportada que la conciliación automática no pudo casar · aún no reserva GLP",
+    clienteDesc: "Estamos confirmando tu transferencia con el banco" },
+  { key: "PAGADA", admin: "Pagada · GLP reservado", cliente: "Pago verificado",
+    adminDesc: "Pago conciliado contra el banco · el GLP queda reservado",
     clienteDesc: "Confirmamos tu pago con el banco" },
   { key: "EN_AD", admin: "En AD", cliente: "En despacho",
     adminDesc: "Atención de distribución abierta",
@@ -237,15 +862,34 @@ export const fechaLarga = (d) => { const v = fechaValida(d); return v ? v.toLoca
 export const diasEntre = (a, b) => Math.round((b - a) / 86400000);
 export const sumarDias = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 
-export const montos = (conceptoId, cantidad, usuarioOrId = null) => {
+/**
+ * Calcula base, IVA y total de una operación.
+ * @param fechaRef fecha del documento. El precio se resuelve contra el mes de esa fecha,
+ *                 no contra el precio de hoy: así el histórico nunca se reescribe.
+ */
+export const montos = (conceptoId, cantidad, usuarioOrId = null, fechaRef = null) => {
   const c = cpt(conceptoId);
   const u = usuarioOrId ? (typeof usuarioOrId === "string" ? usr(usuarioOrId) : usuarioOrId) : null;
   // Bombonas de 10 kg y 18 kg: tratamiento fiscal según el uso/contrato.
   // Residencial = exonerado de IVA. Comercial o institucional = gravado.
   const exento = c.fiscalPorUso && u ? segmentoUsuario(u) === "RESIDENCIAL" : c.exento;
-  const base = c.precio * cantidad;
+
+  const precio = precioVigente(conceptoId, fechaRef);
+  const bruto = precio * cantidad;
+
+  // Condición tarifaria del usuario: exonerado no paga, protegido paga tarifa social.
+  // Solo aplica si el aval está vigente; vencido, vuelve a tarifa regular.
+  const tarifa = u ? tarifaVigenteDe(u, fechaRef) : condicionTarifa("REGULAR");
+  const base = bruto * tarifa.factorTarifa;
+  const descuento = bruto - base;
   const iva = exento ? 0 : base * IVA;
-  return { base, iva, total: base + iva, exento, tratamientoFiscal: exento ? "EXONERADO" : "GRAVADO" };
+
+  return {
+    base, iva, total: base + iva, exento,
+    tratamientoFiscal: exento ? "EXENTO_IVA" : "GRAVADO",
+    precioUnitario: precio, brutoTarifaRegular: bruto, descuentoTarifa: descuento,
+    condicionTarifaAplicada: tarifa.id, avalVencido: Boolean(tarifa.vencida),
+  };
 };
 
 /* ── Descarga de archivos ── */
@@ -262,12 +906,166 @@ export function descargar(nombre, contenido, mime = "text/csv;charset=utf-8;") {
 }
 export const csv = (filas) => filas.map((f) => f.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";")).join("\n");
 
+/* ═══════════  SALDO A FAVOR DEL USUARIO (ABONO)  ═══════════
+   Regla de la Gerencia: el usuario que no compra en lo planificado NO queda con servicio
+   pendiente por despachar. Queda con dinero abonado a su código para una compra futura.
+
+   El abono es NOMINAL en bolívares, no indexado. Ejemplo textual del requerimiento:
+   transfiere 3.000 Bs por una bombona que hoy cuesta 1.700 → quedan 1.300 Bs de abono.
+   Si vuelve cuando la bombona cuesta 2.600, devenga sus 1.300 y paga la diferencia.
+
+   Consecuencia contable importante: al convertirse en abono, la solicitud deja de
+   comprometer GLP. Los kilos vuelven a disponible real. Por eso `ABONADA` es un estado
+   terminal y queda fuera de compromisos y de recaudación pendiente de despacho. */
+
+export const ESTADO_ABONADA = "ABONADA";
+export const esAbonada = (s) => s?.estado === ESTADO_ABONADA;
+
+/* El saldo a favor entra por varias vías y sale por una sola: aplicarse a una compra.
+   No existe un tipo de movimiento que devuelva dinero al usuario, porque la empresa no
+   reembolsa. Si algún día se agrega uno, tendrá que ser una decisión explícita y no un
+   descuido — por eso PERMITE_REEMBOLSO está arriba, al lado de las demás reglas. */
+export const TIPOS_ABONO = {
+  ABONO_EXCEDENTE: { nombre: "Excedente de pago", signo: 1, desc: "Transfirió más de lo facturado" },
+  ABONO_NO_COMPRA: { nombre: "No compró en el AD", signo: 1, desc: "Estaba planificado y no retiró" },
+  ABONO_DEVOLUCION: { nombre: "Despacho no concretado", signo: 1, desc: "Salió a ruta y no se pudo entregar" },
+  CONSUMO: { nombre: "Aplicado a compra", signo: -1, desc: "Devengado en una nueva solicitud" },
+};
+export const tipoAbono = (id) => TIPOS_ABONO[id] || TIPOS_ABONO.ABONO_EXCEDENTE;
+
+/** Saldo disponible por usuario a partir del libro de movimientos de abono.
+ *  Un movimiento anulado permanece en el estado de cuenta pero deja de sumar: se anula
+ *  cuando se revierte la resolución que lo originó y ese dinero pasa a pagar el despacho. */
+export const saldosDe = (abonos = []) =>
+  abonos.reduce((acc, m) => {
+    if (m.anulado) return acc;
+    const signo = tipoAbono(m.tipo).signo;
+    acc[m.usuario] = Number(((acc[m.usuario] || 0) + signo * Number(m.monto || 0)).toFixed(2));
+    return acc;
+  }, {});
+
+export const saldoDe = (abonos = [], usuarioId) => saldosDe(abonos)[usuarioId] || 0;
+
+/** Estado de cuenta de un usuario con saldo corrido, del más antiguo al más reciente. */
+export const estadoCuentaAbono = (abonos = [], usuarioId) => {
+  let saldo = 0;
+  return abonos
+    .filter((m) => m.usuario === usuarioId)
+    .sort((a, b) => (a.fecha || 0) - (b.fecha || 0))
+    .map((m) => {
+      const signo = m.anulado ? 0 : tipoAbono(m.tipo).signo;
+      saldo = Number((saldo + signo * Number(m.monto || 0)).toFixed(2));
+      return { ...m, signo, saldoResultante: saldo };
+    });
+};
+
+/**
+ * Reparte el total de una compra entre el saldo a favor y lo que falta transferir.
+ * El abono se devenga primero, hasta donde alcance.
+ */
+export const aplicarSaldo = (total, saldoDisponible) => {
+  const devengado = Math.min(Number(saldoDisponible || 0), Number(total || 0));
+  return {
+    devengado: Number(devengado.toFixed(2)),
+    porPagar: Number((Number(total || 0) - devengado).toFixed(2)),
+    saldoRestante: Number((Number(saldoDisponible || 0) - devengado).toFixed(2)),
+  };
+};
+
+/* ═══════════  CUPO POR CICLO DE DISTRIBUCIÓN  ═══════════
+   Una bombona por núcleo familiar por ciclo. El núcleo se identifica por el contrato:
+   varias personas de una misma vivienda comparten contrato y por tanto comparten cupo.
+   Sin este control hay acaparamiento y reventa. */
+
+export const nucleoDe = (usuarioOrId) => {
+  const u = typeof usuarioOrId === "string" ? usr(usuarioOrId) : usuarioOrId;
+  return u?.contrato || u?.id || "—";
+};
+
+/** Bombonas ya solicitadas o recibidas por el núcleo en el ciclo indicado. */
+export const consumoDelCiclo = (usuarioOrId, sols = [], ciclo = cicloDistribucion()) => {
+  const nucleo = nucleoDe(usuarioOrId);
+  const delNucleo = sols.filter((s) =>
+    nucleoDe(s.usuario) === nucleo &&
+    cpt(s.concepto).bombona &&
+    !esAbonada(s) &&
+    s.pago?.estado !== "RECHAZADO" &&
+    cicloDistribucion(s.fecha) === ciclo
+  );
+  return {
+    ciclo,
+    solicitudes: delNucleo,
+    unidades: delNucleo.reduce((a, s) => a + Number(s.cantidad || 0), 0),
+    entregadas: delNucleo.filter((s) => s.estado === "CULMINADO").reduce((a, s) => a + Number(s.cantidad || 0), 0),
+  };
+};
+
+/** ¿Puede este núcleo solicitar? Devuelve el motivo cuando no. */
+export const puedeSolicitar = (usuarioOrId, sols = [], conceptoId, cantidad = 1) => {
+  if (!cpt(conceptoId).bombona) return { ok: true };
+  const c = consumoDelCiclo(usuarioOrId, sols);
+  const disponible = TOPE_BOMBONAS_CICLO - c.unidades;
+  if (cantidad <= disponible) return { ok: true, cupoRestante: disponible, consumo: c };
+  return {
+    ok: false, cupoRestante: Math.max(0, disponible), consumo: c,
+    motivo: c.unidades >= TOPE_BOMBONAS_CICLO
+      ? `El núcleo familiar ya tiene ${c.unidades} bombona(s) en el ciclo ${c.ciclo}. El tope es ${TOPE_BOMBONAS_CICLO} por ciclo.`
+      : `Solo queda cupo para ${disponible} bombona(s) en este ciclo.`,
+  };
+};
+
+/* ═══════════  CONSIGNACIÓN COMUNAL  ═══════════
+   La comuna recibe mercancía en custodia, no la compra. Al despachar desde planta se
+   factura al usuario y la comuna queda como responsable de esa mercancía hasta que la
+   entrega. Lo que recibió y no entregó es un saldo que le debe a la empresa. */
+
+export const ESTADOS_CONSIGNACION = [
+  { id: "EN_CUSTODIA", nombre: "En custodia de la comuna", color: "#9A6410" },
+  { id: "ENTREGADO", nombre: "Entregado al usuario", color: "#1B7A4C" },
+  { id: "DEVUELTO", nombre: "Devuelto a planta", color: "#2A5FA6" },
+  { id: "INCIDENCIA", nombre: "Con incidencia", color: "#A83E3E" },
+];
+
+/**
+ * Estado de cuenta de consignación por comuna.
+ * Recibido = despachado desde planta. Entregado = confirmado por el portal comuna.
+ * La diferencia es lo que la comuna tiene en custodia y debe responder.
+ */
+export const consignacionesDe = (sols = []) => {
+  const porComuna = {};
+  // Solo el envasado pasa por la comuna. El granel se descarga en el tanque del cliente,
+  // así que ni entra en custodia ni debe mezclarse: su `cantidad` son kilos, no unidades.
+  sols.filter((s) => s.estado === "CULMINADO" && s.modalidadEntrega === "COMUNA" && s.comuna && cpt(s.concepto).bombona)
+    .forEach((s) => {
+      const c = (porComuna[s.comuna] ||= {
+        comuna: s.comuna, recibidas: 0, kgRecibido: 0, entregadas: 0, kgEntregado: 0,
+        incidencias: 0, valorRecibido: 0, valorEntregado: 0, detalle: [],
+      });
+      const q = Number(s.cantidad || 0), kg = kgDeSolicitud(s), val = Number(s.total || 0);
+      c.recibidas += q; c.kgRecibido += kg; c.valorRecibido += val;
+      if (s.retiradoPorUsuario || s.estadoRetiroComuna === "RETIRADA") {
+        c.entregadas += q; c.kgEntregado += kg; c.valorEntregado += val;
+      }
+      if (s.estadoRetiroComuna === "INCIDENCIA") c.incidencias += q;
+      c.detalle.push(s);
+    });
+  return Object.values(porComuna).map((c) => ({
+    ...c,
+    enCustodia: c.recibidas - c.entregadas,
+    kgEnCustodia: c.kgRecibido - c.kgEntregado,
+    valorEnCustodia: c.valorRecibido - c.valorEntregado,
+    cumplimiento: c.recibidas ? (c.entregadas / c.recibidas) * 100 : 0,
+  })).sort((a, b) => b.enCustodia - a.enCustodia);
+};
+
 /* ── Inventario comprometido: pagar NO significa que el GLP salió físicamente. ── */
 export const kgDeSolicitud = (s) => {
   const c = cpt(s.concepto);
   return c.inv ? c.kg * Number(s.cantidad || 0) : 0;
 };
+export const litrosDeSolicitud = (s) => kgALitros(kgDeSolicitud(s));
 export const esCompromisoInventario = (s) => {
+  if (esAbonada(s)) return false; // el dinero pasó a abono: el GLP se libera
   if (!cpt(s.concepto).inv || faseIdx(s.estado) >= faseIdx("CULMINADO")) return false;
   const td = tpd(s.tipoDespacho);
   return s.estado === "EN_AD" || s.pago?.estado === "VERIFICADO" || !td.requierePago;
@@ -279,7 +1077,7 @@ export const disponiblesDe = (existencias, compromisos) => Object.fromEntries(CD
   Math.max(0, (existencias[c.id] || 0) - (compromisos[c.id] || 0))
 ]));
 export const pagadasPendientesDe = (sols) => sols.filter((s) =>
-  cpt(s.concepto).inv && faseIdx(s.estado) < faseIdx("CULMINADO") && s.pago?.estado === "VERIFICADO"
+  !esAbonada(s) && cpt(s.concepto).inv && faseIdx(s.estado) < faseIdx("CULMINADO") && s.pago?.estado === "VERIFICADO"
 );
 
 /* ── Cierre mensual unificado: una sola fuente para pantalla, acta y CSV. ──
@@ -396,11 +1194,21 @@ export function generarEstadoInicial() {
       transportistaTipo: null, epsdc: null,
       ad: null, boleta: null, factura: null, serie: null, control: null,
       ...m,
+      /* El pago entra por el portal y la pasarela lo resuelve sola. Aunque este
+         histórico cuadre siempre, se arma con la misma regla y con la misma forma
+         que los demás: Comercialización lee un solo campo, no dos formatos. */
       pago: td.requierePago
-        ? { banco: o.banco || pick(["BDV", "BNC", "PROV", "PM"]), referencia: String(nREF), fecha: o.fecha, estado: "VERIFICADO", auto: true }
-        : { banco: null, referencia: null, fecha: null, estado: "NO_APLICA", auto: false },
+        ? (() => {
+            const canal = o.canal || pick(["PAGO_MOVIL", "PORTAL", "PAGO_MOVIL", "COMUNAL", "TAQUILLA"]);
+            const ref = String(nREF);
+            const r = aplicarReglaPago({ montoRecibido: m.total, totalFacturado: m.total, referencia: ref, referenciasVistas: null });
+            return { banco: o.banco || pick(["BDV", "BNC", "PROV", "PM"]), referencia: ref, fecha: o.fecha,
+              estado: r.estadoPago, auto: true, canal, montoRecibido: m.total,
+              regla: r.regla, detalleRegla: r.detalle, resueltoEn: o.fecha };
+          })()
+        : { banco: null, referencia: null, fecha: null, estado: "NO_APLICA", auto: false, canal: null, regla: null },
     };
-    if (faseIdx(s.estado) >= 1) {
+    if (faseIdx(s.estado) >= faseIdx("EN_AD")) {
       s.ad = `AD-${++nAD}`;
       const porEpsdc = rnd() < 0.34;
       s.transportistaTipo = porEpsdc ? "EPSDC" : "GASLARA";
@@ -408,7 +1216,7 @@ export function generarEstadoInicial() {
       s.operador = porEpsdc ? pick(OPERADORES_EPSDC) : pick(OPERADORES_GASLARA);
       s.unidad = porEpsdc ? pick(UNIDADES_EPSDC) : pick(UNIDADES_GASLARA);
     }
-    if (faseIdx(s.estado) >= 2) {
+    if (faseIdx(s.estado) >= faseIdx("CULMINADO")) {
       s.boleta = `BOP-${String(++nBOP).padStart(4, "0")}`;
       if (td.factura) {
         nSERIE++;
@@ -538,10 +1346,10 @@ export function generarEstadoInicial() {
 
   /* ── Facturación manual de talonario por CDT ── */
   const manuales = [
-    ["CDT-QUIB", "4341470", "BOMB_10", 2, 3, "TAL-QUIB-1180"],
-    ["CDT-BQTO", "4341388", "BOMB_18", 2, 4, "TAL-BQTO-1181"],
-    ["CDT-CABU", "4341502", "BOMB_18", 2, 2, "TAL-CABU-1182"],
-    ["CDT-CARO", "4341233", "GRAN_RES", 250, 5, "TAL-CARO-1183"],
+    ["CDT-JGI", "4341470", "BOMB_10", 2, 3, "TAL-JGI-1180"],
+    ["CDT-JL", "4341388", "BOMB_18", 2, 4, "TAL-JL-1181"],
+    ["CDT-JGI", "4341502", "BOMB_18", 2, 2, "TAL-JGI-1182"],
+    ["CDT-JL", "4341233", "GRAN_RES", 250, 5, "TAL-JL-1183"],
   ].map(([cdt, u, con, cant, dia, tal], i) => ({
     id: `FAC-M-${String(201 + i).padStart(6, "0")}`, serie: `M-${String(201 + i).padStart(8, "0")}`,
     control: tal, talonario: tal, sol: null, ad: null, cdt, comuna: usr(u).comuna, usuario: u, concepto: con, cantidad: cant,
@@ -577,19 +1385,291 @@ export function generarEstadoInicial() {
       cerrado: new Date(2026, 6, 31), atendio: "D. Camacaro", solicitud: null },
   ];
 
+  /* ── Libro de saldos a favor ──
+     Incluye el caso textual del requerimiento: transfiere 3.000 Bs por una bombona
+     de 1.700 y quedan 1.300 Bs abonados a su código. */
+  let nABO = 400;
+  const abono = (usuario, fecha, tipo, monto, referencia, detalle, extra = {}) => {
+    nABO += 1;
+    return { id: `ABO-${nABO}`, usuario, fecha, tipo, monto: Number(Number(monto).toFixed(2)), referencia, detalle, ...extra };
+  };
+
+  const abonos = [
+    abono("4340817", new Date(2026, 6, 1), "ABONO_EXCEDENTE", 1300,
+      "884210", "Transfirió Bs 3.000,00 por bombona de 18 kg tarifada en Bs 1.700,00", { banco: "BDV" }),
+    abono("4340912", new Date(2026, 6, 12), "ABONO_NO_COMPRA", 1386.08,
+      "AD-1361", "Planificada en la jornada del 12/07 y no retiró", { ad: "AD-1361", cdt: "CDT-JL" }),
+    abono("4341190", new Date(2026, 6, 20), "ABONO_NO_COMPRA", 2494.94,
+      "AD-1368", "No se encontraba en el punto al momento de la entrega", { ad: "AD-1368", cdt: "CDT-JL" }),
+    abono("4340912", new Date(2026, 7, 3), "CONSUMO", 900,
+      "SOL-2431", "Devengado en compra posterior", { solicitud: "SOL-2431" }),
+    abono("4342186", new Date(2026, 7, 5), "ABONO_EXCEDENTE", 640.5,
+      "884553", "Excedente de transferencia", { banco: "PM" }),
+    abono("4341502", new Date(2026, 7, 9), "ABONO_DEVOLUCION", 1663.29,
+      "AD-1374", "Entrega no concretada · cilindro devuelto a planta", { ad: "AD-1374", cdt: "CDT-JGI" }),
+    abono("4342745", new Date(2026, 7, 11), "ABONO_NO_COMPRA", 924.05,
+      "AD-1379", "Ausente en la jornada comunal", { ad: "AD-1379", cdt: "CDT-JL" }),
+  ];
+
+  /* ── Movimientos de planta del 13 y 14 de agosto ── */
+  let nMP = 900;
+  const mp = (o) => { nMP += 1; return { id: `MP-${nMP}`, ...o, litros: kgALitros(o.kg) }; };
+  const movPlanta = [
+    mp({ fecha: new Date(2026, 7, 13), hora: "05:40", tipo: "ENTRADA_GANDOLA", cdt: "CDT-JL",
+      documento: "GAN-140382", contraparte: "PDVSA Gas · Planta Barquisimeto", kg: 24000,
+      vehiculo: "Gandola A44TR8", operador: "Miguel Ángel Castillo", cedula: "V-13.772.916",
+      nota: "Descarga a tanque 1 · nivel inicial 11%", estado: "CONFIRMADA" }),
+    mp({ fecha: new Date(2026, 7, 13), hora: "07:15", tipo: "SALIDA_CILINDROS", cdt: "CDT-JL",
+      documento: "CMP-130826-01", contraparte: "AD-76527 · Rastrojitos Centro", cilindros: { 10: 127, 18: 54, 43: 17 },
+      kg: kgDeCilindros({ 10: 127, 18: 54, 43: 17 }), vehiculo: "A92RT5", operador: "Luis Alberto Mendoza",
+      cedula: "V-10.934.285", nota: "Carga conforme a planificación", estado: "CONFIRMADA" }),
+    mp({ fecha: new Date(2026, 7, 13), hora: "17:52", tipo: "ENTRADA_CILINDROS", cdt: "CDT-JL",
+      documento: "CMP-130826-01-R", contraparte: "Retorno AD-76527", cilindros: { 10: 6, 18: 2 },
+      kg: kgDeCilindros({ 10: 6, 18: 2 }), vehiculo: "A92RT5", operador: "Luis Alberto Mendoza",
+      cedula: "V-10.934.285", nota: "8 cilindros no entregados · usuarios ausentes", estado: "CONFIRMADA" }),
+    mp({ fecha: new Date(2026, 7, 14), hora: "05:20", tipo: "ENTRADA_GANDOLA", cdt: "CDT-JGI",
+      documento: "GAN-140401", contraparte: "PDVSA Gas · Planta Barquisimeto", kg: 18500,
+      vehiculo: "Gandola A71QW2", operador: "Miguel Ángel Castillo", cedula: "V-13.772.916",
+      nota: "Descarga a tanque 2", estado: "CONFIRMADA" }),
+    mp({ fecha: new Date(2026, 7, 14), hora: "06:48", tipo: "SALIDA_CILINDROS", cdt: "CDT-JL",
+      documento: "CMP-140826-01", contraparte: "AD-76892 · La Lagunita", cilindros: { 10: 109, 18: 11, 43: 2 },
+      kg: kgDeCilindros({ 10: 109, 18: 11, 43: 2 }), vehiculo: "A73KD2", operador: "José Manuel Rodríguez",
+      cedula: "V-12.845.733", nota: "Jornada comunal José Gregorio Bastidas", estado: "CONFIRMADA" }),
+    mp({ fecha: new Date(2026, 7, 14), hora: "07:05", tipo: "SALIDA_CILINDROS", cdt: "CDT-JL",
+      documento: "CMP-140826-02", contraparte: "AD-76539 · Las Playitas", cilindros: { 10: 176, 18: 13, 43: 14 },
+      kg: kgDeCilindros({ 10: 176, 18: 13, 43: 14 }), vehiculo: "A92RT5", operador: "Luis Alberto Mendoza",
+      cedula: "V-10.934.285", nota: "Ruta 6 · Tamaca", estado: "CONFIRMADA" }),
+    mp({ fecha: new Date(2026, 7, 14), hora: "08:10", tipo: "SALIDA_GANDOLA", cdt: "CDT-JL",
+      documento: "GAN-140418", contraparte: "Parque Viviendo Hugo Chávez · granel residencial", kg: 1600,
+      vehiculo: "D18GL7", operador: "Miguel Ángel Castillo", cedula: "V-13.772.916",
+      nota: "Despacho granel a tanque de condominio", estado: "CONFIRMADA" }),
+    mp({ fecha: new Date(2026, 7, 14), hora: "09:30", tipo: "SALIDA_GANDOLA", cdt: "CDT-JGI",
+      documento: "GAN-140423", contraparte: "Planta móvil PM-01 · Jiménez", kg: 3200,
+      vehiculo: "D18GL7", operador: "Miguel Ángel Castillo", cedula: "V-13.772.916",
+      nota: "Abastecimiento de planta móvil para jornada de llenado", estado: "CONFIRMADA" }),
+    mp({ fecha: new Date(2026, 7, 14), hora: "11:12", tipo: "ENTRADA_VACIOS", cdt: "CDT-JL",
+      documento: "CMP-140826-V1", contraparte: "Retorno de envases · comunas Tamaca", cilindros: { 10: 143, 18: 22 },
+      kg: 0, vehiculo: "A92RT5", operador: "Luis Alberto Mendoza", cedula: "V-10.934.285",
+      nota: "Envases vacíos para llenado", estado: "CONFIRMADA" }),
+    mp({ fecha: new Date(2026, 7, 14), hora: "13:40", tipo: "SALIDA_CILINDROS", cdt: "CDT-JGI",
+      documento: "CMP-140826-03", contraparte: "AD-76988 · Zona Centro / Unión", cilindros: { 10: 5, 18: 12, 43: 40 },
+      kg: kgDeCilindros({ 10: 5, 18: 12, 43: 40 }), vehiculo: "B41MX8", operador: "Carlos Eduardo Pérez",
+      cedula: "V-14.217.604", nota: "Ruta comercial", estado: "PENDIENTE_CIERRE" }),
+  ];
+
   return {
-    solicitudes, manuales, reclamos,
-    seq: { sol: nSOL, ad: nAD, bop: nBOP, serie: nSERIE, ped: nPED, ref: nREF, rec: 353, mov: 5200 },
+    solicitudes, manuales, reclamos, abonos, movPlanta,
+    seq: { sol: nSOL, ad: nAD, bop: nBOP, serie: nSERIE, ped: nPED, ref: nREF, rec: 353, mov: 5200, abo: nABO, mp: nMP },
   };
 }
 
+/* ═══════════  UNIFICACIÓN · PLANIFICACIÓN → SOLICITUDES REALES  ═══════════
+   Convierte a cada persona planificada en una solicitud del sistema, con su envase,
+   su pago y su cupo. A partir de aquí Distribución, Operaciones y Comercialización
+   miran la misma lista y comparten identificadores.
+
+   Recibe `beneficiariosDeRuta` como parámetro para no crear dependencia circular
+   entre este módulo y la semilla de distribución. */
+export function solicitudesDeRutas(rutas = [], beneficiariosFn, inicio = {}) {
+  let nSOL = inicio.sol || 9000;
+  let nPED = inicio.ped || 141000000;
+  let nREF = inicio.ref || 990000;
+  let nABO = inicio.abo || 700;
+  const solicitudes = [];
+  const parque = [];
+  const abonos = [];
+  const referenciasVistas = new Set();
+
+  rutas.forEach((r) => {
+    if (["INSTITUCIÓN", "COMERCIO"].includes(r.bloque)) return;
+    const comuna = COMUNAS.find((c) => c.nombre.toUpperCase() === String(r.comuna).toUpperCase())
+      || COMUNAS.find((c) => c.sector?.toUpperCase().includes(String(r.parroquia).toUpperCase()))
+      || COMUNAS[0];
+    const cdt = comuna.cdt || CDTS[0].id;
+    const adActivo = r.estadoRuta !== "SIN_PLANIFICAR" && r.ad && String(r.ad) !== "0";
+
+    (beneficiariosFn(r) || []).forEach((p, i) => {
+      nSOL += 1; nPED += 7; nREF += 131;
+      const concepto = `BOMB_${p.kg}`;
+      const contrato = `C-${String(p.cedula || "").replace(/\D/g, "").slice(-7) || nSOL}`;
+
+      registrarBeneficiario({
+        id: p.id, nombre: p.nombre, cedula: p.cedula, comunidad: p.comunidad,
+        parroquia: p.parroquia, rutaId: r.id, comunaId: comuna.id, cdt,
+        segmento: p.segmento || "RESIDENCIAL", contrato,
+      });
+
+      // Envase: la mayoría lo tiene. Un porcentaje realista no lo presenta el día de la
+      // jornada, y eso es justo lo que el operador debe poder registrar en la calle.
+      const sinEnvase = (i % 17 === 5);
+      const enTaller = (i % 41 === 11);
+      parque.push({
+        serial: serialEnvase(p.id, p.kg), usuario: p.id, kg: p.kg,
+        estado: enTaller ? "EN_TALLER" : sinEnvase ? "RETIRADO" : "EN_USUARIO",
+        motivo: enTaller ? "Válvula defectuosa · reacondicionamiento" : sinEnvase ? "No presentado en jornada" : null,
+        desde: new Date(2026, 6, 1 + (i % 28)),
+      });
+
+      // El pago lo confirma la API contra el banco y la regla se aplica sola: la
+      // solicitud nace resuelta. Nadie aprueba nada.
+      const m = montos(concepto, 1, p.id, HOY);
+      const canal = i % 3 === 0 ? "PAGO_MOVIL" : i % 7 === 1 ? "COMUNAL" : "PORTAL";
+      // Casos que la regla resuelve sola, en la proporción en que ocurren de verdad.
+      const desvio = i % 197 === 9 ? 0.82 : i % 197 === 60 ? 1.35 : 1;
+      const duplicada = i % 397 === 31;
+      const recibido = Number((m.total * desvio).toFixed(2));
+      const referencia = String(duplicada ? nREF - 131 : nREF);
+      const idSol = `SOL-${nSOL}`;
+
+      // Sin pago reportado no hay regla que aplicar: la solicitud queda esperando.
+      const res = p.pagado
+        ? aplicarReglaPago({ montoRecibido: recibido, totalFacturado: m.total, referencia, referenciasVistas })
+        : null;
+      if (p.pagado) referenciasVistas.add(referencia);
+
+      const enAD = adActivo && res?.estadoSolicitud === "PAGADA";
+      if (res?.abono) {
+        nABO += 1;
+        abonos.push({
+          id: `ABO-R${nABO}`, usuario: p.id, fecha: new Date(2026, 7, 12), tipo: res.abono.tipo,
+          monto: res.abono.monto, referencia, detalle: `${reglaPago(res.regla).nombre} · ${res.detalle}`,
+          solicitud: idSol, banco: ["BDV", "BNC", "PROV", "PM"][i % 4], automatico: true,
+        });
+      }
+
+      solicitudes.push({
+        id: idSol, pedidoNro: nPED, usuario: p.id, cdt, comuna: comuna.id,
+        concepto, cantidad: 1, tipoDespacho: "COMERCIAL", condicionVenta: "CONTADO",
+        fecha: new Date(2026, 7, 14), entrega: new Date(2026, 7, 14),
+        ventana: "Jornada comunal", nota: "",
+        jornadaComunal: `JC-${comuna.id}-1408`, modalidadEntrega: "COMUNA",
+        estado: enAD ? "EN_AD" : (res?.estadoSolicitud || "SIN_PAGO"),
+        motivoNoCompra: res?.regla === "MONTO_MENOR" ? reglaPago(res.regla).nombre : undefined,
+        operador: enAD ? r.conductor : null, unidad: enAD ? r.unidad : null,
+        ayudante: enAD ? r.ayudante : null,
+        transportistaTipo: enAD ? r.transportistaTipo : null, epsdc: enAD ? r.epsdc : null,
+        ad: enAD ? String(r.ad) : null,
+        rutaId: r.id, comunidad: p.comunidad, parroquia: p.parroquia,
+        boleta: null, factura: null, serie: null, control: null,
+        ...m,
+        pago: res
+          ? { banco: ["BDV", "BNC", "PROV", "PM"][i % 4], referencia, fecha: new Date(2026, 7, 12),
+              estado: res.estadoPago, auto: true, canal, montoRecibido: recibido,
+              regla: res.regla, detalleRegla: res.detalle, resueltoEn: new Date(2026, 7, 12) }
+          : { banco: null, referencia: null, fecha: null, estado: "SIN_PAGO", auto: false, canal: null },
+      });
+    });
+  });
+
+  /* ── Lo que pasa después de un rechazo ────────────────────────────────────────
+     Una regla rechaza un pago y ahí no termina la historia: la persona vuelve a
+     intentar. Sin esto el sistema mostraría un solo tipo de caso repetido veintitantas
+     veces, y en la calle no se ve así. Aquí se reproduce lo que ocurre de verdad:
+
+       · unos reportan otra vez la misma referencia, creyendo que se perdió;
+       · otros transfieren corto y al día siguiente mandan un comprobante que no es suyo.
+
+     Ese segundo intento es el que produce el patrón que ninguna regla puede cerrar. */
+  const rechazadas = solicitudes.filter((s) => s.pago?.estado === "RECHAZADO");
+  const reintento = (base, dia, referencia, montoRecibido, nota) => {
+    nSOL += 1; nPED += 7;
+    const res = aplicarReglaPago({
+      montoRecibido, totalFacturado: base.total, referencia, referenciasVistas,
+    });
+    referenciasVistas.add(referencia);
+    const id = `SOL-${nSOL}`;
+    if (res.abono) {
+      nABO += 1;
+      abonos.push({
+        id: `ABO-R${nABO}`, usuario: base.usuario, fecha: new Date(2026, 7, dia), tipo: res.abono.tipo,
+        monto: res.abono.monto, referencia, detalle: `${reglaPago(res.regla).nombre} · ${res.detalle}`,
+        solicitud: id, banco: base.pago.banco, automatico: true,
+      });
+    }
+    solicitudes.push({
+      ...base, id, pedidoNro: nPED, ad: null, operador: null, unidad: null, ayudante: null,
+      transportistaTipo: null, epsdc: null, boleta: null, factura: null, serie: null, control: null,
+      fecha: new Date(2026, 7, dia), entrega: new Date(2026, 7, dia + 2),
+      estado: res.estadoSolicitud, nota,
+      motivoNoCompra: res.regla === "MONTO_MENOR" ? reglaPago(res.regla).nombre : undefined,
+      pago: {
+        ...base.pago, referencia, fecha: new Date(2026, 7, dia), estado: res.estadoPago,
+        montoRecibido, regla: res.regla, detalleRegla: res.detalle, resueltoEn: new Date(2026, 7, dia),
+      },
+    });
+  };
+
+  // Insisten con su propia referencia: el mismo comprobante mandado tres veces.
+  rechazadas.filter((_, k) => k % 9 === 2).slice(0, 4).forEach((s) => {
+    reintento(s, 13, s.pago.referencia, s.pago.montoRecibido, "Reportó de nuevo el mismo comprobante");
+    reintento(s, 15, s.pago.referencia, s.pago.montoRecibido, "Tercer reporte del mismo comprobante");
+  });
+
+  // Transfirieron corto y al otro día mandaron un comprobante ajeno.
+  rechazadas.filter((s) => s.pago.regla === "MONTO_MENOR").filter((_, k) => k % 7 === 3).slice(0, 5)
+    .forEach((s, k) => {
+      const ajena = rechazadas[(k * 3 + 1) % rechazadas.length]?.pago.referencia
+        || solicitudes.find((x) => x.pago?.estado === "VERIFICADO")?.pago.referencia;
+      if (ajena) reintento(s, 16, ajena, s.total, "Reportó un comprobante que no está a su nombre");
+    });
+
+  return { solicitudes, parque, abonos, seq: { sol: nSOL, ped: nPED, ref: nREF, abo: nABO } };
+}
+
+/** Parque de envases de los usuarios del padrón, uno por contrato. */
+export function parqueDelPadron() {
+  return USUARIOS.map((u, i) => {
+    const kg = /Comercial/i.test(u.tipoContrato || "") ? 27 : /Granel/i.test(u.tipoContrato || "") ? 0 : 18;
+    if (!kg) return null;
+    const enTaller = i % 13 === 4;
+    const sinEnvase = i % 11 === 7;
+    return {
+      serial: serialEnvase(u.id, kg), usuario: u.id, kg,
+      estado: enTaller ? "EN_TALLER" : sinEnvase ? "RETIRADO" : "EN_USUARIO",
+      motivo: enTaller ? "Prueba hidrostática vencida" : sinEnvase ? "Envase no localizado" : null,
+      desde: u.desde,
+    };
+  }).filter(Boolean);
+}
+
+/** Envases de un usuario a partir del parque completo. */
+export const envasesDe = (parque = [], usuarioId) => parque.filter((e) => e.usuario === usuarioId);
+
+/** Resumen del parque por estado, para el tablero de envases. */
+export const resumenParque = (parque = []) => {
+  const porEstado = ESTADOS_ENVASE.map((e) => ({
+    ...e, total: parque.filter((x) => x.estado === e.id).length,
+  }));
+  const porTamano = [10, 18, 27, 43].map((kg) => ({
+    kg, total: parque.filter((x) => x.kg === kg).length,
+    enUsuario: parque.filter((x) => x.kg === kg && x.estado === "EN_USUARIO").length,
+    enTaller: parque.filter((x) => x.kg === kg && x.estado === "EN_TALLER").length,
+  })).filter((x) => x.total > 0);
+  return { total: parque.length, porEstado, porTamano };
+};
+
 /* ── Derivados ── */
-export const boletasDe = (sols) => sols.filter((s) => s.boleta).map((s) => ({
-  id: s.boleta, sol: s.id, ad: s.ad, fecha: s.entrega, cdt: s.cdt, comuna: s.comuna || usr(s.usuario).comuna, usuario: s.usuario,
-  concepto: s.concepto, cantidad: s.cantidad, kg: cpt(s.concepto).kg * s.cantidad,
-  tipoDespacho: s.tipoDespacho, condicionVenta: s.condicionVenta,
-  operador: s.operador, unidad: s.unidad, transportistaTipo: s.transportistaTipo, epsdc: s.epsdc,
-}));
+/* Toda salida física del CDT deja boleta: la del despacho de ruta, la del servicio
+   culminado en taquilla y la de la venta sin contrato. Si alguna no la dejara, el
+   inventario se movería por un documento que el control documental no puede rastrear. */
+export const boletasDe = (sols, manuales = []) => [
+  ...sols.filter((s) => s.boleta).map((s) => ({
+    id: s.boleta, sol: s.id, ad: s.ad, fecha: s.entrega, cdt: s.cdt, comuna: s.comuna || usr(s.usuario).comuna, usuario: s.usuario,
+    concepto: s.concepto, cantidad: s.cantidad, kg: cpt(s.concepto).kg * s.cantidad,
+    tipoDespacho: s.tipoDespacho, condicionVenta: s.condicionVenta,
+    operador: s.operador || s.servicio?.atendio || null, unidad: s.unidad,
+    transportistaTipo: s.transportistaTipo, epsdc: s.epsdc,
+    origen: s.servicio ? "SERVICIO" : "AD",
+  })),
+  ...manuales.filter((f) => f.boleta).map((f) => ({
+    id: f.boleta, sol: null, ad: null, fecha: f.fecha, cdt: f.cdt, comuna: null, usuario: f.usuario,
+    concepto: f.concepto, cantidad: f.cantidad, kg: cpt(f.concepto).kg * f.cantidad,
+    tipoDespacho: f.tipoDespacho, condicionVenta: f.condicionVenta,
+    operador: f.compradorNombre ? `Atendido en ${f.canal === "PLANTA_MOVIL" ? "planta móvil" : "CDT"}` : null,
+    unidad: null, transportistaTipo: null, epsdc: null,
+    origen: "SIN_CONTRATO", factura: f.serie,
+  })),
+];
 
 export const facturasDe = (sols, manuales) => [
   ...sols.filter((s) => s.factura).map((s) => ({
@@ -619,11 +1699,57 @@ export const movimientosDe = (sols, manuales = []) => [
     })),
 ].sort((a, b) => b.fecha - a.fecha);
 
-export const existenciasDe = (movs) => {
+/* ═══════════  MOVIMIENTO DE PLANTA · OPERADOR DE PLANTA  ═══════════
+   El operador de planta no solo entrega gas: controla lo que ENTRA y lo que SALE,
+   tanto en cilindros como en gandolas.
+
+   Hasta ahora el prototipo no tenía ninguna forma de RECIBIR gas: la existencia partía
+   de un saldo inicial fijo y solo podía bajar. La recepción por gandola cierra ese vacío.
+
+   Criterio de afectación al inventario, para no contar dos veces:
+   · Gandola (entrada o salida): afecta el inventario físico del CDT de una vez,
+     porque el movimiento ocurre en la planta.
+   · Cilindros: la carga del camión se registra como TRÁNSITO, no como salida contable.
+     La salida contable la sigue produciendo la BOP al cerrar el AD, y lo que el camión
+     devuelve se concilia contra esa carga. */
+
+export const TIPOS_MOV_PLANTA = [
+  { id: "ENTRADA_GANDOLA", nombre: "Recepción por gandola", medio: "GANDOLA", signo: 1, afectaStock: true,
+    desc: "Ingreso de GLP a granel al tanque del CDT" },
+  { id: "SALIDA_GANDOLA", nombre: "Despacho por gandola", medio: "GANDOLA", signo: -1, afectaStock: true,
+    desc: "Salida de GLP a granel hacia cliente o planta móvil" },
+  { id: "SALIDA_CILINDROS", nombre: "Carga de cilindros", medio: "CILINDROS", signo: -1, afectaStock: false,
+    desc: "Cilindros llenos cargados al vehículo · queda en tránsito" },
+  { id: "ENTRADA_CILINDROS", nombre: "Retorno de cilindros", medio: "CILINDROS", signo: 1, afectaStock: false,
+    desc: "Cilindros llenos no entregados que regresan a planta" },
+  { id: "ENTRADA_VACIOS", nombre: "Recepción de envases vacíos", medio: "CILINDROS", signo: 0, afectaStock: false,
+    desc: "Envases retornados por el usuario · no mueve GLP" },
+];
+export const tipoMovPlanta = (id) => TIPOS_MOV_PLANTA.find((t) => t.id === id) || TIPOS_MOV_PLANTA[0];
+
+export const kgDeCilindros = (c = {}) =>
+  [10, 15, 18, 21, 27, 43].reduce((a, k) => a + Number(c[k] || 0) * k, 0);
+
+/** Existencias por CDT: saldo inicial + recepciones de planta − salidas por BOP y granel. */
+export const existenciasDe = (movs = [], movsPlanta = []) => {
   const base = Object.fromEntries(CDTS.map((c) => [c.id, c.inicial]));
-  movs.forEach((m) => { base[m.cdt] += m.kg; });
+  movs.forEach((m) => { if (base[m.cdt] != null) base[m.cdt] += m.kg; });
+  movsPlanta.forEach((m) => {
+    const t = tipoMovPlanta(m.tipo);
+    if (!t.afectaStock || base[m.cdt] == null) return;
+    base[m.cdt] += t.signo * Number(m.kg || 0);
+  });
   return base;
 };
+
+/** Cilindros cargados que aún no han sido entregados ni devueltos. */
+export const transitoDe = (movsPlanta = []) =>
+  movsPlanta.reduce((acc, m) => {
+    const t = tipoMovPlanta(m.tipo);
+    if (t.medio !== "CILINDROS" || t.id === "ENTRADA_VACIOS") return acc;
+    acc[m.cdt] = Number(((acc[m.cdt] || 0) + -t.signo * Number(m.kg || 0)).toFixed(2));
+    return acc;
+  }, {});
 
 /* ── Ciclo de consumo del cliente del portal (histórico real) ── */
 export function cicloDe(sols, usuarioId) {
