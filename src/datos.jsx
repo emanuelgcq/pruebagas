@@ -30,7 +30,12 @@ export const BANCOS = [
   { id: "PROV", nombre: "Banco Provincial", tipo: "Cuenta Corriente", cuenta: "0108-0947-9201-0003-5714", color: "#004481" },
   { id: "PM", nombre: "Pago Móvil · Banco Activo", tipo: "Pago Móvil", cuenta: "0416-0000000", color: "#0072BC", movil: true },
 ];
-export const banco = (id) => BANCOS.find((b) => b.id === id) || BANCOS[0];
+/* Un pago en efectivo o sin banco no se atribuye a ningún banco: antes caía por defecto en
+   Banco de Venezuela y el libro de ventas mostraba un banco que nunca intervino. */
+export const banco = (id) => BANCOS.find((b) => b.id === id)
+  || (id === "EFECTIVO"
+    ? { id: "EFECTIVO", nombre: "Efectivo · arqueo de caja", tipo: "Efectivo", cuenta: "—", color: "#516069" }
+    : { id: id || "—", nombre: id ? String(id) : "No aplica", tipo: "—", cuenta: "—", color: "#8A969D" });
 
 /* ── Centros de distribución ──
    Comercialización opera dos CDT. Cada uno atiende varias comunas y municipios. */
@@ -385,26 +390,29 @@ export const USUARIOS = [
    ═══════════════════════════════════════════════════════════════════ */
 
 /* 1 · MOMENTO DE LA VENTA
-   La venta ocurre al despachar desde planta al consejo comunal o punto de distribución.
-   La comuna actúa como CONSIGNATARIO: recibe mercancía en custodia. Si no entrega,
-   responde ante la empresa — no el usuario ante la comuna.
-   La factura se emite al despachar.  →  ver `consignacionesDe()` y `entregar()` */
+   La venta ocurre cuando la bombona llena vuelve al punto comunal y se cierra el AD.
+   Ahí termina la responsabilidad de la empresa: si el dueño la retira ese día o después
+   ya no le compete a GasLara. La factura se emite al cerrar el AD.  →  `cerrarADPuro()` */
 
-/* 2 · PRECIO APLICABLE
-   Manda el precio del día del DESPACHO, no el del pedido. Siendo tarifa regulada por
-   gaceta, cambia por resolución y no a diario, así que la ventana de riesgo es baja.
-   →  `montos()` se invoca con la fecha de despacho al facturar */
+/* 2 · PRECIO APLICABLE · SIEMPRE EL ACTUAL
+   Los precios cambian cada mes por inflación. Se cobra con el precio vigente: el del día
+   en que sale el AD. Si la tarifa sube mientras el pedido espera, el pedido queda
+   POR COMPLETAR hasta que se cubra la diferencia (primero con el saldo a favor, solo;
+   luego con una transferencia). El saldo abonado es nominal: se conserva en bolívares y
+   se descuenta contra el precio del momento.  →  `repreciar()`, `cerrarADPuro()` */
 
 /* 3 · ENVASE
-   No se entrega sin envase. El intercambio vacío-por-lleno es la norma.
-   Sin cilindro vacío no hay despacho. No existe depósito ni recargo: el usuario debe
-   tener su bombona o adquirirla aparte.  →  ver PARQUE DE ENVASES */
+   La bombona es del usuario. La lleva vacía al punto, se recoge, se llena en planta y
+   vuelve llena al mismo punto. Sin bombona no hay nada que recoger ni que llenar.
+   Antes del AD sólo decide el pago: lo que el parque de envases recuerda es un aviso,
+   no un bloqueo, porque si la persona lleva o no su bombona se sabe en el punto.  →  `validarCanje()` */
 export const EXIGE_ENVASE_PARA_CANJE = true;
 
-/* 4 · CILINDRO DEFECTUOSO
-   Reposición física, canje 1:1 de envase. Se retira el defectuoso, se entrega uno
-   operativo y el retirado entra a taller de reacondicionamiento.
-   No hay abono monetario y el GLP no se libera.  →  ver MOTIVOS_NO_ENTREGA */
+/* 4 · BOMBONA MALA
+   Puede detectarse en el punto (se rechaza, no se recoge) o en planta (no admite
+   llenado y vuelve vacía). En los dos casos la bombona sigue siendo del usuario, queda
+   marcada como no apta y el pedido pasa a replanificación: se atiende en una AD
+   especial cuando tenga una bombona apta.  →  ver MOTIVOS_NO_ENTREGA */
 
 /* 5 · FORMATO NO DISPONIBLE
    No se entrega un formato por otro. El regulador fija precio por formato, no por kilo,
@@ -430,6 +438,30 @@ export const cicloDistribucion = (d = HOY) => {
   const v = d instanceof Date ? d : new Date(d);
   return Number.isNaN(v.getTime()) ? "—" : `${v.getFullYear()}-${String(v.getMonth()).padStart(2, "0")}`;
 };
+/** La clave del ciclo cuenta los meses desde cero (así la usan precios y cupo); esto es para leerla. */
+export const etiquetaCiclo = (clave = cicloDistribucion()) => {
+  const [a, m] = String(clave).split("-").map(Number);
+  return Number.isFinite(a) && Number.isFinite(m)
+    ? new Date(a, m, 1).toLocaleDateString("es-VE", { month: "long", year: "numeric" })
+    : "—";
+};
+/** Último día del ciclo en curso: es el plazo para replanificar y para completar un pago. */
+export const finDeCiclo = (d = HOY) => {
+  const v = d instanceof Date ? d : new Date(d);
+  return new Date(v.getFullYear(), v.getMonth() + 1, 0);
+};
+
+/* 9 · PROBLEMAS → REPLANIFICACIÓN, NO ABONO
+   Cuando algo falla —no llevó la bombona, estaba mala, la planta no pudo llenar— el pedido
+   no se abona de una vez: pasa a POR REPLANIFICAR y el gerente de Distribución lo atiende
+   en una AD especial, una ruta por usuario que decide con lo que el sistema le muestra.
+   El abono queda como último recurso: si el usuario desistió, si Distribución decide no
+   replanificar, o si vence el plazo (el cierre del ciclo) sin atenderlo.
+
+   10 · EL MENOR SALDO POSIBLE
+   El saldo a favor casi siempre nace de un error del usuario. Por eso se descuenta solo:
+   primero en su próximo pedido y también para cubrir cualquier diferencia de tarifa.  */
+export const PLAZO_REPLANIFICACION = "FIN_DE_CICLO";
 
 /* 8 · PAGO ANTES DEL COMPROMISO
    Pago verificado → reserva de inventario → despacho. Una solicitud sin verificar
@@ -437,8 +469,8 @@ export const cicloDistribucion = (d = HOY) => {
 export const ESTADOS_PAGO = [
   { id: "SIN_PAGO", nombre: "Sin pago", reserva: false, enBandeja: false, color: "#6B7B85",
     desc: "No ha reportado ningún pago. No hay nada que conciliar." },
-  { id: "POR_CONCILIAR", nombre: "Por conciliar", reserva: false, enBandeja: true, color: "#9A6410",
-    desc: "Reportó referencia pero la conciliación automática no pudo casarla" },
+  { id: "INCOMPLETO", nombre: "Incompleto", reserva: false, enBandeja: false, color: "#9A6410",
+    desc: "Llegó menos de lo que cuesta el pedido, o la tarifa subió antes del despacho · falta la diferencia" },
   { id: "VERIFICADO", nombre: "Verificado", reserva: true, enBandeja: false, color: "#1B7A4C",
     desc: "Casado contra el banco · el GLP queda reservado" },
   { id: "RECHAZADO", nombre: "Rechazado", reserva: false, enBandeja: false, color: "#A83E3E",
@@ -483,8 +515,8 @@ export const REGLAS_PAGO = [
     efecto: "Se verifica y el excedente se abona al código",
     desc: "El pedido queda cubierto y la diferencia le queda a favor para la próxima compra." },
   { id: "MONTO_MENOR", nombre: "Transfirió de menos", severidad: "media",
-    efecto: "Se abona lo recibido y la solicitud se cancela",
-    desc: "No alcanza para el pedido y no hay entrega parcial. El dinero queda a su favor hasta que complete." },
+    efecto: "Se aplica lo recibido y el pedido queda por completar",
+    desc: "No alcanza para el pedido y no hay entrega parcial. Lo recibido queda aplicado al pedido; transfiere la diferencia y entra a la jornada." },
   { id: "REFERENCIA_DUPLICADA", nombre: "Referencia ya utilizada", severidad: "alta",
     efecto: "Se rechaza la solicitud",
     desc: "Esa referencia ya respalda otro pedido. Puede ser error del usuario o intento de duplicar." },
@@ -501,12 +533,15 @@ export const aplicarReglaPago = ({ montoRecibido, totalFacturado, referencia, re
 
   if (referencia && referenciasVistas?.has(referencia)) {
     return { regla: "REFERENCIA_DUPLICADA", estadoPago: "RECHAZADO", estadoSolicitud: "SIN_PAGO",
-      abono: null, detalle: `La referencia ${referencia} ya respalda otra solicitud` };
+      abono: null, detalle: `La referencia ${referencia} ya respalda un pago registrado` };
   }
+  /* Transfirió de menos: no hay entrega parcial, pero tampoco se cancela. Lo recibido
+     queda aplicado al pedido y el pedido espera la diferencia. Así el dinero no se va al
+     saldo a favor por un error del usuario, que es lo que casi siempre es. */
   if (recibido < facturado - 0.01) {
-    return { regla: "MONTO_MENOR", estadoPago: "RECHAZADO", estadoSolicitud: ESTADO_ABONADA,
-      abono: { tipo: "ABONO_EXCEDENTE", monto: recibido },
-      detalle: `Recibió Bs ${bs(recibido)} de Bs ${bs(facturado)} · se abona y se cancela` };
+    return { regla: "MONTO_MENOR", estadoPago: "INCOMPLETO", estadoSolicitud: ESTADO_POR_COMPLETAR,
+      abono: null,
+      detalle: `Recibió Bs ${bs(recibido)} de Bs ${bs(facturado)} · faltan Bs ${bs(facturado - recibido)} por completar` };
   }
   if (recibido > facturado + 0.01) {
     return { regla: "MONTO_MAYOR", estadoPago: "VERIFICADO", estadoSolicitud: "PAGADA",
@@ -544,18 +579,27 @@ export const bitacoraPagos = (sols = []) => {
 
    Un rechazo suelto no es un patrón — ya se resolvió. Los umbrales de abajo separan
    el error de tecleo (una vez, se corrige solo) de la conducta (se repite). */
+/** Cada vez que alguien reportó una referencia: el pago del pedido, los complementos con
+ *  que completó y los intentos que la regla rechazó. Un intento no es un pedido nuevo. */
+export const reportesDePago = (sols = []) => sols.flatMap((s) => [
+  ...(s.pago?.referencia ? [{ solicitud: s, usuario: s.usuario, referencia: s.pago.referencia, estado: s.pago.estado, regla: s.pago.regla, fecha: s.pago.fecha }] : []),
+  ...((s.pago?.complementos || []).filter((c) => c.referencia).map((c) => ({ solicitud: s, usuario: s.usuario, referencia: c.referencia, estado: "VERIFICADO", regla: "EXACTO", fecha: c.fecha }))),
+  ...((s.pago?.intentos || []).map((i) => ({ solicitud: s, usuario: s.usuario, referencia: i.referencia, estado: i.estado, regla: i.regla, fecha: i.fecha }))),
+]);
+
 export const patronesSospechosos = (sols = []) => {
   const hallazgos = [];
   const porRef = {};
-  sols.filter((s) => s.pago?.referencia).forEach((s) => { (porRef[s.pago.referencia] ||= []).push(s); });
+  const unicas = (reps) => [...new Map(reps.map((x) => [x.solicitud.id, x.solicitud])).values()];
+  reportesDePago(sols).forEach((x) => { (porRef[x.referencia] ||= []).push(x); });
 
   Object.entries(porRef).forEach(([ref, v]) => {
     if (v.length < 2) return;
-    const codigos = [...new Set(v.map((s) => s.usuario))];
+    const codigos = [...new Set(v.map((x) => x.usuario))];
     if (codigos.length > 1) {
       /* La misma referencia bancaria reportada por códigos distintos no es un error de
          tecleo: alguien está pasando un comprobante ajeno. Vale nombrar a los dos lados. */
-      const legitima = v.find((s) => s.pago.estado === "VERIFICADO");
+      const legitima = v.find((x) => x.estado === "VERIFICADO");
       hallazgos.push({
         id: `PAT-REF-${ref}`, tipo: "REFERENCIA_COMPARTIDA", severidad: "alta",
         titulo: `Referencia ${ref} reportada por ${codigos.length} códigos distintos`,
@@ -563,7 +607,7 @@ export const patronesSospechosos = (sols = []) => {
           ? `El pago respalda a ${legitima.usuario}. Los demás la reportaron después y fueron rechazados.`
           : `Ningún reporte de esta referencia pudo verificarse contra el banco.`,
         accion: "Confirmar el comprobante original con el titular antes de liberar nada",
-        solicitudes: v, usuarios: codigos,
+        solicitudes: unicas(v), usuarios: codigos, reportes: v,
       });
     } else if (v.length >= 3) {
       /* El mismo código insistiendo con su propia referencia: no es fraude, es una
@@ -571,9 +615,9 @@ export const patronesSospechosos = (sols = []) => {
       hallazgos.push({
         id: `PAT-INS-${ref}`, tipo: "REINTENTO_INSISTENTE", severidad: "media",
         titulo: `${codigos[0]} reportó la misma referencia ${v.length} veces`,
-        detalle: "La regla rechazó cada intento. Probablemente no entiende por qué.",
+        detalle: "La regla rechazó cada intento repetido. Probablemente no entiende por qué.",
         accion: "Llamar y verificar el comprobante: puede ser un pago real mal reportado",
-        solicitudes: v, usuarios: codigos,
+        solicitudes: unicas(v), usuarios: codigos, reportes: v,
       });
     }
   });
@@ -584,22 +628,19 @@ export const patronesSospechosos = (sols = []) => {
      Si ya salió arriba insistiendo con un solo comprobante, no se repite aquí: sería
      el mismo caso contado dos veces, y el operador terminaría llamando dos veces a la
      misma persona por lo mismo. */
-  const yaCubierto = new Set(
-    hallazgos.filter((h) => h.tipo === "REINTENTO_INSISTENTE")
-      .map((h) => `${h.usuarios[0]}|${h.solicitudes.map((s) => s.id).sort().join(",")}`)
-  );
+  const yaCubierto = new Set(hallazgos.flatMap((h) => h.usuarios.length === 1 ? h.usuarios : []));
   const porUsuario = {};
-  sols.filter((s) => s.pago?.estado === "RECHAZADO").forEach((s) => {
-    (porUsuario[s.usuario] ||= []).push(s);
+  reportesDePago(sols).filter((x) => x.estado === "RECHAZADO").forEach((x) => {
+    (porUsuario[x.usuario] ||= []).push(x);
   });
   Object.entries(porUsuario).filter(([, v]) => v.length >= 2).forEach(([uid, v]) => {
-    if (yaCubierto.has(`${uid}|${v.map((s) => s.id).sort().join(",")}`)) return;
+    if (yaCubierto.has(uid)) return;
     hallazgos.push({
       id: `PAT-RECH-${uid}`, tipo: "RECHAZOS_REPETIDOS", severidad: "media",
       titulo: `${uid} acumula ${v.length} pagos rechazados en el ciclo`,
-      detalle: [...new Set(v.map((s) => reglaPago(s.pago.regla).nombre))].join(" · "),
+      detalle: [...new Set(v.map((x) => reglaPago(x.regla).nombre))].join(" · "),
       accion: "Revisar el registro del usuario y contactarlo",
-      solicitudes: v, usuarios: [uid],
+      solicitudes: unicas(v), usuarios: [uid], reportes: v,
     });
   });
 
@@ -627,28 +668,47 @@ export const patronesSospechosos = (sols = []) => {
    Cada motivo tiene una consecuencia distinta. Esto es lo que permite marcar a una
    persona concreta de las ciento y pico que lleva la AD, y que esa marca produzca el
    efecto correcto en vez de un texto libre que nadie procesa. */
+/* Cada motivo dice en qué MOMENTO de la jornada ocurre y qué CONSECUENCIA tiene:
+     RECOLECCION · en el punto: la bombona no se recogió.
+     PLANTA      · se recogió pero no se llenó; vuelve vacía al punto con las demás.
+   Consecuencia:
+     REPLANIFICAR · el pedido sigue vivo y pasa a la bandeja de Distribución (AD especial).
+     ABONO        · el usuario desistió: su dinero va al saldo a favor.
+   Salen diez, vuelven diez: toda bombona recogida vuelve al punto, llena o vacía. */
 export const MOTIVOS_NO_ENTREGA = [
-  { id: "NO_ESTABA", nombre: "No se encontraba", consecuencia: "ABONO", liberaGlp: true,
-    desc: "Nadie recibió en el punto. El dinero pasa a su saldo a favor." },
-  { id: "SIN_ENVASE", nombre: "No llevó su bombona al punto", consecuencia: "ABONO", liberaGlp: true,
-    desc: "No hubo qué recoger. Sin bombona no hay nada que llenar ni que devolver." },
-  { id: "FORMATO_NO_DISPONIBLE", nombre: "Formato no disponible en la unidad", consecuencia: "ABONO", liberaGlp: true,
-    desc: "No se sustituye un formato por otro: el precio es por formato." },
-  { id: "DIRECCION_NO_UBICADA", nombre: "Dirección no ubicada", consecuencia: "ABONO", liberaGlp: true, marcaPadron: true,
-    desc: "Marca el registro para verificación de datos." },
-  { id: "RECHAZO", nombre: "Rechazó la entrega", consecuencia: "ABONO", liberaGlp: true,
-    desc: "El usuario desistió en el momento." },
-  { id: "CANCELADO", nombre: "Cancelado por el usuario", consecuencia: "ABONO", liberaGlp: true,
-    desc: "Canceló antes de la entrega. Queda saldo para el próximo despacho." },
-  /* La bombona se recogió pero estaba mala y no se pudo llenar. No hay reposición en el
-     momento: vuelve vacía, el envase entra a taller y el dinero le queda abonado. El GLP
-     se libera porque nunca llegó a cargarse. Es la única diferencia legítima entre lo
-     que se recoge y lo que se devuelve lleno. */
-  { id: "DEFECTUOSO", nombre: "Bombona mala · no se pudo llenar", consecuencia: "ABONO", liberaGlp: true,
-    envaseATaller: true,
-    desc: "Se recogió pero no admite llenado. Vuelve vacía, entra a taller y se abona el dinero." },
+  { id: "NO_ESTABA", nombre: "No se encontraba", momento: "RECOLECCION", consecuencia: "REPLANIFICAR",
+    imputable: "USUARIO", liberaGlp: false,
+    desc: "No estaba en el punto con su bombona. Se replanifica en una AD especial." },
+  { id: "SIN_ENVASE", nombre: "No llevó su bombona al punto", momento: "RECOLECCION", consecuencia: "REPLANIFICAR",
+    imputable: "USUARIO", liberaGlp: false,
+    desc: "No hubo qué recoger. Se replanifica para cuando tenga su bombona." },
+  { id: "RECHAZADA_PUNTO", nombre: "Bombona rechazada en el punto por mal estado", momento: "RECOLECCION", consecuencia: "REPLANIFICAR",
+    imputable: "USUARIO", liberaGlp: false, envaseNoApto: true,
+    desc: "Válvula dañada, sin aro o golpeada: no se recoge. Queda marcada no apta hasta que la repare." },
+  { id: "FORMATO_NO_DISPONIBLE", nombre: "Llevó un formato distinto al pagado", momento: "RECOLECCION", consecuencia: "REPLANIFICAR",
+    imputable: "USUARIO", liberaGlp: false,
+    desc: "No se sustituye un formato por otro: el precio es por formato. Se replanifica con la bombona correcta." },
+  { id: "DIRECCION_NO_UBICADA", nombre: "Dirección no ubicada", momento: "RECOLECCION", consecuencia: "REPLANIFICAR",
+    imputable: "USUARIO", liberaGlp: false, marcaPadron: true,
+    desc: "En una AD especial la dirección no apareció. Marca el registro para verificar datos." },
+  { id: "RECHAZO", nombre: "Desistió en el punto", momento: "RECOLECCION", consecuencia: "ABONO",
+    imputable: "USUARIO", liberaGlp: true,
+    desc: "Decidió no comprar. Su dinero queda como saldo a favor." },
+  { id: "CANCELADO", nombre: "Canceló el pedido", momento: "RECOLECCION", consecuencia: "ABONO",
+    imputable: "USUARIO", liberaGlp: true,
+    desc: "Canceló antes de la recolección. Queda saldo para el próximo pedido." },
+  /* Se recogió pero no admite llenado: vuelve vacía al punto junto con las demás, queda
+     marcada no apta y el pedido se replanifica. Es la diferencia legítima entre lo que se
+     recoge y lo que vuelve lleno. */
+  { id: "DEFECTUOSO", nombre: "Bombona mala · no se pudo llenar", momento: "PLANTA", consecuencia: "REPLANIFICAR",
+    imputable: "USUARIO", liberaGlp: false, envaseNoApto: true,
+    desc: "Se recogió pero no admite llenado. Vuelve vacía y se replanifica cuando tenga una apta." },
+  { id: "FALLA_PLANTA", nombre: "No se llenó por falla de la empresa", momento: "PLANTA", consecuencia: "REPLANIFICAR",
+    imputable: "EMPRESA", liberaGlp: false, prioridad: true,
+    desc: "Falta de gas, avería o tiempo. No es culpa del usuario: se replanifica con prioridad." },
 ];
 export const motivoNoEntrega = (id) => MOTIVOS_NO_ENTREGA.find((m) => m.id === id) || MOTIVOS_NO_ENTREGA[0];
+export const motivosDelMomento = (momento) => MOTIVOS_NO_ENTREGA.filter((m) => m.momento === momento);
 
 /* ═══════════  INCIDENCIAS ANTES DEL DESPACHO  ═══════════
    Los motivos de arriba los marca el operador en la calle, sobre una entrega que se
@@ -676,10 +736,6 @@ export const INCIDENCIAS_PREVIAS = [
   { id: "SE_MUDO", nombre: "Se mudó fuera del área de servicio", consecuencia: "CIERRA",
     grupo: "El usuario", liberaGlp: true, marcaPadron: true,
     desc: "Marca el registro. El saldo queda a su nombre: no se reembolsa, pero tampoco se pierde." },
-
-  { id: "SIN_ENVASE_VIGENTE", nombre: "No tiene envase para el canje", consecuencia: "RETIENE",
-    grupo: "El envase",
-    desc: "Su cilindro está en taller o fue retirado de servicio. El pedido espera hasta que tenga uno del formato correcto." },
 
   { id: "SIN_EXISTENCIA", nombre: "No hay existencia del formato", consecuencia: "RETIENE",
     grupo: "La empresa",
@@ -712,6 +768,7 @@ export const ESTADOS_ENVASE = [
   { id: "EN_PLANTA_LLENO", nombre: "En planta · lleno", color: "#1B7A4C" },
   { id: "EN_TRANSITO", nombre: "En tránsito", color: "#9A6410" },
   { id: "EN_TALLER", nombre: "En taller de reacondicionamiento", color: "#A83E3E" },
+  { id: "NO_APTO", nombre: "No apto · requiere reparación", color: "#A83E3E" },
   { id: "RETIRADO", nombre: "Retirado de servicio", color: "#3A464E" },
 ];
 export const estadoEnvase = (id) => ESTADOS_ENVASE.find((e) => e.id === id) || ESTADOS_ENVASE[0];
@@ -726,17 +783,21 @@ function hashTexto(s) {
   return h;
 }
 
-/** ¿Tiene el usuario un envase del tamaño requerido para hacer el canje? */
+/** ¿Tiene el usuario una bombona apta del tamaño pedido? Es un AVISO para quien pide,
+ *  no un bloqueo: si la lleva o no al punto se sabe el día de la jornada. */
 export const validarCanje = (parqueUsuario = [], kgRequerido) => {
   if (!EXIGE_ENVASE_PARA_CANJE) return { ok: true, envase: null };
   const apto = parqueUsuario.find((e) => e.kg === kgRequerido && e.estado === "EN_USUARIO");
   if (apto) return { ok: true, envase: apto };
+  const mismoTamano = parqueUsuario.find((e) => e.kg === kgRequerido);
   const otroTamano = parqueUsuario.find((e) => e.estado === "EN_USUARIO");
   return {
     ok: false, envase: null,
-    motivo: otroTamano
-      ? `Solo tiene envase de ${otroTamano.kg} kg y el pedido es de ${kgRequerido} kg. Los formatos no son intercambiables.`
-      : "No tiene envase vacío registrado para el canje.",
+    motivo: mismoTamano && ["NO_APTO", "EN_TALLER"].includes(mismoTamano.estado)
+      ? `Su bombona de ${kgRequerido} kg figura no apta (${mismoTamano.motivo || estadoEnvase(mismoTamano.estado).nombre}). Si no la tiene reparada el día de la jornada, no se podrá recoger.`
+      : otroTamano
+        ? `Solo tiene registrada una bombona de ${otroTamano.kg} kg y el pedido es de ${kgRequerido} kg. Los formatos no se sustituyen.`
+        : "No tiene bombona registrada. Recuerde que sin bombona el día de la jornada no hay nada que recoger.",
   };
 };
 
@@ -822,28 +883,50 @@ export const segmentoUsuario = (uOrId) => {
 };
 export const CLIENTE_PORTAL = USUARIOS[0];
 
-/* ── Fases: un solo ciclo de vida, dos lenguajes ──
-   Los pagos se verifican automáticamente contra el banco, así que la
-   solicitud nace pagada y entra directo a la cola de distribución. */
-export const FASES = [
-  { key: "SIN_PAGO", admin: "Sin pago", cliente: "Falta tu pago",
-    adminDesc: "Registrada en el padrón sin pago reportado · no reserva GLP",
+/* ── Estados de la solicitud: un solo ciclo de vida, tres lenguajes ──
+   La API verifica el pago y aplica la regla; nadie concilia a mano. La escalera que ve el
+   ciudadano tiene cuatro peldaños (FASES). Los estados laterales —por completar, por
+   replanificar, abonada— no son peldaños: se muestran como aviso sobre el peldaño en que
+   quedó el pedido. */
+export const ESTADO_POR_COMPLETAR = "POR_COMPLETAR";
+export const ESTADO_POR_REPLANIFICAR = "POR_REPLANIFICAR";
+
+export const ESTADOS_SOLICITUD = [
+  { key: "SIN_PAGO", admin: "Sin pago", cliente: "Falta tu pago", peldano: 0,
+    paso: "Pides y pagas", pasoDesc: "Eliges tu bombona y transfieres; la API verifica el pago al instante", comprometeGlp: false, tono: "gris",
+    adminDesc: "Sin pago válido · no reserva GLP ni entra a ninguna AD",
     clienteDesc: "Reporta tu transferencia para entrar a la próxima jornada" },
-  { key: "POR_CONCILIAR", admin: "Por conciliar", cliente: "Verificando tu pago",
-    adminDesc: "Referencia reportada que la conciliación automática no pudo casar · aún no reserva GLP",
-    clienteDesc: "Estamos confirmando tu transferencia con el banco" },
-  { key: "PAGADA", admin: "Pagada · GLP reservado", cliente: "Pago verificado",
-    adminDesc: "Pago conciliado contra el banco · el GLP queda reservado",
-    clienteDesc: "Confirmamos tu pago con el banco" },
-  { key: "EN_AD", admin: "En AD", cliente: "En despacho",
-    adminDesc: "Atención de distribución abierta",
-    clienteDesc: "Asignada a la unidad de reparto" },
-  { key: "CULMINADO", admin: "Culminado", cliente: "Completado",
-    adminDesc: "AD cerrada · boleta, inventario y factura generados automáticamente",
-    clienteDesc: "Entrega completada y documentos generados" },
+  { key: "POR_COMPLETAR", admin: "Por completar", cliente: "Falta completar tu pago", peldano: 0, comprometeGlp: false, tono: "ambar",
+    adminDesc: "Llegó menos de lo que cuesta, o la tarifa subió · no entra a una AD hasta cubrir la diferencia",
+    clienteDesc: "Lo que pagaste quedó aplicado. Transfiere la diferencia y entras a la próxima jornada" },
+  { key: "PAGADA", admin: "Pagada · por planificar", cliente: "Pago verificado", peldano: 1,
+    paso: "Pago verificado", pasoDesc: "Tu gas queda reservado hasta que tu comuna tenga jornada", comprometeGlp: true, tono: "verde",
+    adminDesc: "Pago verificado por la API · el GLP queda reservado hasta que salga su AD",
+    clienteDesc: "Tu pago está confirmado. Te avisamos cuando tu comuna tenga jornada" },
+  { key: "EN_AD", admin: "En AD", cliente: "En jornada", peldano: 2,
+    paso: "Jornada", pasoDesc: "Llevas tu bombona vacía al punto; se llena en planta y vuelve al mismo punto", comprometeGlp: true, tono: "azul",
+    adminDesc: "Convocada en una AD · recolección, llenado y devolución al punto",
+    clienteDesc: "Lleva tu bombona al punto el día de la jornada; vuelve llena al mismo punto" },
+  { key: "POR_REPLANIFICAR", admin: "Por replanificar", cliente: "Reprogramada", peldano: 2, comprometeGlp: true, tono: "ambar",
+    adminDesc: "Hubo un problema en la jornada · espera una AD especial de Distribución",
+    clienteDesc: "Tu pedido sigue vivo: Distribución te asigna una ruta especial" },
+  { key: "CULMINADO", admin: "Entregada · facturada", cliente: "Lista en tu punto", peldano: 3,
+    paso: "Lista en tu punto", pasoDesc: "Tu bombona volvió llena al punto y ya tienes tu factura", comprometeGlp: false, tono: "verde",
+    adminDesc: "AD cerrada · bombona devuelta llena al punto · BOP, salida de inventario y factura",
+    clienteDesc: "Tu bombona volvió llena al punto comunal y ya tienes tu factura" },
+  { key: "ABONADA", admin: "Abonada", cliente: "Cerrada · saldo a tu favor", peldano: -1, comprometeGlp: false, tono: "gris",
+    adminDesc: "Cerrada sin despacho · el dinero pasó al saldo a favor y el GLP se liberó",
+    clienteDesc: "Tu dinero quedó como saldo a favor y se descuenta solo en tu próximo pedido" },
 ];
-export const faseIdx = (k) => FASES.findIndex((f) => f.key === k);
-export const fase = (k) => FASES[faseIdx(k)] || FASES[0];
+export const estadoSolicitud = (k) => ESTADOS_SOLICITUD.find((e) => e.key === k) || ESTADOS_SOLICITUD[0];
+
+/** Los cuatro peldaños que ve el ciudadano. */
+export const FASES = ESTADOS_SOLICITUD.filter((e) => ["SIN_PAGO", "PAGADA", "EN_AD", "CULMINADO"].includes(e.key));
+/** Peldaño en que quedó una solicitud; -1 si terminó sin despacho. */
+export const faseIdx = (k) => estadoSolicitud(k).peldano;
+/** Etiquetas de cualquier estado, incluidos los laterales. */
+export const fase = (k) => estadoSolicitud(k);
+export const esEstadoLateral = (k) => ["POR_COMPLETAR", "POR_REPLANIFICAR", "ABONADA"].includes(k);
 
 /* ── Formato ── */
 export const bs = (n) => (n || 0).toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -880,12 +963,15 @@ export const montos = (conceptoId, cantidad, usuarioOrId = null, fechaRef = null
   // Condición tarifaria del usuario: exonerado no paga, protegido paga tarifa social.
   // Solo aplica si el aval está vigente; vencido, vuelve a tarifa regular.
   const tarifa = u ? tarifaVigenteDe(u, fechaRef) : condicionTarifa("REGULAR");
-  const base = bruto * tarifa.factorTarifa;
-  const descuento = bruto - base;
-  const iva = exento ? 0 : base * IVA;
+  // Cada documento va redondeado al céntimo, como la factura impresa: así la suma de
+  // las facturas, el cierre del AD y el libro de ventas coinciden hasta el último céntimo.
+  const cent = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
+  const base = cent(bruto * tarifa.factorTarifa);
+  const descuento = cent(bruto - base);
+  const iva = exento ? 0 : cent(base * IVA);
 
   return {
-    base, iva, total: base + iva, exento,
+    base, iva, total: cent(base + iva), exento,
     tratamientoFiscal: exento ? "EXENTO_IVA" : "GRAVADO",
     precioUnitario: precio, brutoTarifaRegular: bruto, descuentoTarifa: descuento,
     condicionTarifaAplicada: tarifa.id, avalVencido: Boolean(tarifa.vencida),
@@ -927,7 +1013,7 @@ export const esAbonada = (s) => s?.estado === ESTADO_ABONADA;
    descuido — por eso PERMITE_REEMBOLSO está arriba, al lado de las demás reglas. */
 export const TIPOS_ABONO = {
   ABONO_EXCEDENTE: { nombre: "Excedente de pago", signo: 1, desc: "Transfirió más de lo facturado" },
-  ABONO_NO_COMPRA: { nombre: "No compró en el AD", signo: 1, desc: "Estaba planificado y no retiró" },
+  ABONO_NO_COMPRA: { nombre: "Pedido cerrado sin despacho", signo: 1, desc: "Desistió, canceló, o no se replanificó antes del cierre del ciclo" },
   ABONO_DEVOLUCION: { nombre: "Despacho no concretado", signo: 1, desc: "Salió a ruta y no se pudo entregar" },
   CONSUMO: { nombre: "Aplicado a compra", signo: -1, desc: "Devengado en una nueva solicitud" },
 };
@@ -1003,13 +1089,17 @@ export const consumoDelCiclo = (usuarioOrId, sols = [], ciclo = cicloDistribucio
 /** ¿Puede este núcleo solicitar? Devuelve el motivo cuando no. */
 export const puedeSolicitar = (usuarioOrId, sols = [], conceptoId, cantidad = 1) => {
   if (!cpt(conceptoId).bombona) return { ok: true };
-  const c = consumoDelCiclo(usuarioOrId, sols);
+  // El tope es por núcleo familiar: comercios e instituciones compran por contrato.
+  const u = typeof usuarioOrId === "string" ? usr(usuarioOrId) : usuarioOrId;
+  if (segmentoUsuario(u) !== "RESIDENCIAL") return { ok: true, sinTope: true };
+  const c = consumoDelCiclo(u, sols);
   const disponible = TOPE_BOMBONAS_CICLO - c.unidades;
   if (cantidad <= disponible) return { ok: true, cupoRestante: disponible, consumo: c };
+  const vigente = c.solicitudes.find((s) => s.estado !== "CULMINADO");
   return {
     ok: false, cupoRestante: Math.max(0, disponible), consumo: c,
     motivo: c.unidades >= TOPE_BOMBONAS_CICLO
-      ? `El núcleo familiar ya tiene ${c.unidades} bombona(s) en el ciclo ${c.ciclo}. El tope es ${TOPE_BOMBONAS_CICLO} por ciclo.`
+      ? `El núcleo familiar ya tiene ${c.unidades} bombona${c.unidades > 1 ? "s" : ""} en el ciclo de ${etiquetaCiclo(c.ciclo)}${vigente ? ` (${vigente.id})` : ""}. El tope es ${TOPE_BOMBONAS_CICLO} por ciclo.`
       : `Solo queda cupo para ${disponible} bombona(s) en este ciclo.`,
   };
 };
@@ -1064,21 +1154,37 @@ export const kgDeSolicitud = (s) => {
   return c.inv ? c.kg * Number(s.cantidad || 0) : 0;
 };
 export const litrosDeSolicitud = (s) => kgALitros(kgDeSolicitud(s));
-export const esCompromisoInventario = (s) => {
-  if (esAbonada(s)) return false; // el dinero pasó a abono: el GLP se libera
-  if (!cpt(s.concepto).inv || faseIdx(s.estado) >= faseIdx("CULMINADO")) return false;
-  const td = tpd(s.tipoDespacho);
-  return s.estado === "EN_AD" || s.pago?.estado === "VERIFICADO" || !td.requierePago;
+
+/* ── Estados que tienen el pedido vivo y pagado ──
+   Pagada, en una AD o esperando replanificación: el GLP está reservado y el dinero está
+   "pendiente por despachar". Por completar NO reserva: todavía no está pagado entero. */
+export const ESTADOS_PENDIENTES = ["PAGADA", "EN_AD", "POR_REPLANIFICAR"];
+export const esPendienteDespacho = (s) => ESTADOS_PENDIENTES.includes(s?.estado);
+
+/** Dinero aplicado al pedido: lo transferido más el saldo que se descontó, sin el excedente
+ *  que ya se fue al saldo a favor. Un pedido exonerado o de apoyo no necesita cubrir nada. */
+export const cubiertoDe = (s) => {
+  if (!s) return 0;
+  if (s.cubierto != null) return Number(s.cubierto);
+  if (!tpd(s.tipoDespacho).requierePago) return Number(s.total || 0);
+  const recibido = s.pago && ["VERIFICADO", "INCOMPLETO"].includes(s.pago.estado) ? Number(s.pago.montoRecibido ?? s.total ?? 0) : 0;
+  return Math.min(Number(s.total || 0), recibido + Number(s.saldoAplicado || 0));
 };
+export const faltanteDe = (s) => Math.max(0, Number((Number(s?.total || 0) - cubiertoDe(s)).toFixed(2)));
+/** Dinero del usuario que está aplicado al pedido. Apoyo, programa social y exonerado no
+ *  mueven dinero: cuentan como GLP pendiente, no como recaudación pendiente. */
+export const dineroAplicadoDe = (s) => (tpd(s?.tipoDespacho).requierePago ? cubiertoDe(s) : 0);
+
+export const esCompromisoInventario = (s) => cpt(s.concepto).inv && esPendienteDespacho(s);
 export const compromisosDe = (sols) => Object.fromEntries(CDTS.map((c) => [c.id,
   sols.filter((s) => s.cdt === c.id && esCompromisoInventario(s)).reduce((a, s) => a + kgDeSolicitud(s), 0)
 ]));
 export const disponiblesDe = (existencias, compromisos) => Object.fromEntries(CDTS.map((c) => [c.id,
   Math.max(0, (existencias[c.id] || 0) - (compromisos[c.id] || 0))
 ]));
-export const pagadasPendientesDe = (sols) => sols.filter((s) =>
-  !esAbonada(s) && cpt(s.concepto).inv && faseIdx(s.estado) < faseIdx("CULMINADO") && s.pago?.estado === "VERIFICADO"
-);
+/** GLP pagado que todavía no se despacha. Una sola definición para Panel, Cierre, Saldos,
+ *  Centro de gestión y portada. */
+export const pagadasPendientesDe = (sols) => sols.filter((s) => cpt(s.concepto).inv && esPendienteDespacho(s));
 
 /* ── Cierre mensual unificado: una sola fuente para pantalla, acta y CSV. ──
    - Entregado/facturado: documentos cuya entrega física ocurrió dentro del período.
@@ -1093,7 +1199,8 @@ const segmentoFilaCierre = (usuarioId) => {
 
 export const resumenCierreMensual = (facturas = [], solicitudes = []) => {
   const facturasPeriodo = facturas.filter((f) => esFechaPeriodo(f.fecha));
-  const recaudadasPendientes = pagadasPendientesDe(solicitudes);
+  // Dinero ya cobrado por GLP que no ha salido. Apoyo y programa social no traen dinero.
+  const recaudadasPendientes = pagadasPendientesDe(solicitudes).filter((s) => tpd(s.tipoDespacho).requierePago);
   const compromisosPendientes = solicitudes.filter((s) => esCompromisoInventario(s));
 
   // Toda salida física del período: BOP cerradas + facturas manuales de productos con inventario.
@@ -1179,21 +1286,28 @@ export function generarEstadoInicial() {
   const nueva = (o) => {
     const c = cpt(o.concepto);
     const td = tpd(o.tipoDespacho || "COMERCIAL");
-    const m = montos(o.concepto, o.cantidad, o.usuario);
+    /* Precios versionados: lo entregado quedó facturado al precio del mes en que se
+       despachó; lo pendiente se pagó al precio del mes en que se pidió. La semilla aplica
+       después la tarifa vigente, y lo que quede corto pasa a "por completar". */
+    // Sin rutas no hay AD: lo que el generador marcaría "en AD" queda pagado y por planificar.
+    // Un servicio nunca va en un AD: se culmina en la O.A.U.
+    const estado = o.estado === "EN_AD" ? "PAGADA" : o.estado;
+    const fechaPrecio = estado === "CULMINADO" ? (o.entrega || sumarDias(o.fecha, 1)) : o.fecha;
+    const m = montos(o.concepto, o.cantidad, o.usuario, fechaPrecio);
     const u = usr(o.usuario);
     nSOL++; nPED += 7; nREF += 131;
     const s = {
       id: `SOL-${nSOL}`, pedidoNro: nPED, usuario: o.usuario, cdt: u.cdt, comuna: u.comuna,
       concepto: o.concepto, cantidad: o.cantidad, tipoDespacho: td.id,
       condicionVenta: o.condicionVenta || u.condicionVenta || "CONTADO",
-      fecha: o.fecha, entrega: o.entrega || sumarDias(o.fecha, 1),
-      ventana: o.ventana || pick(["Mañana (8 am – 12 m)", "Tarde (1 pm – 5 pm)", "Cualquier hora"]),
-      nota: o.nota || "", estado: o.estado, operador: null, unidad: null,
+      fecha: o.fecha, entrega: estado === "CULMINADO" ? (o.entrega || sumarDias(o.fecha, 1)) : null,
+      ventana: segmentoUsuario(u) === "RESIDENCIAL" ? "Jornada comunal" : "Entrega directa",
+      nota: o.nota || "", estado, operador: null, unidad: null, historialAD: [],
       jornadaComunal: o.jornadaComunal || null,
       modalidadEntrega: o.modalidadEntrega || (segmentoUsuario(u) === "RESIDENCIAL" ? "COMUNA" : "DIRECTA_COMERCIAL"),
       transportistaTipo: null, epsdc: null,
       ad: null, boleta: null, factura: null, serie: null, control: null,
-      ...m,
+      ...m, cubierto: m.total, saldoAplicado: 0,
       /* El pago entra por el portal y la pasarela lo resuelve sola. Aunque este
          histórico cuadre siempre, se arma con la misma regla y con la misma forma
          que los demás: Comercialización lee un solo campo, no dos formatos. */
@@ -1208,7 +1322,10 @@ export function generarEstadoInicial() {
           })()
         : { banco: null, referencia: null, fecha: null, estado: "NO_APLICA", auto: false, canal: null, regla: null },
     };
-    if (faseIdx(s.estado) >= faseIdx("EN_AD")) {
+    if (faseIdx(s.estado) >= faseIdx("CULMINADO") && !c.inv) {
+      // Un servicio no sale en una ruta: se culmina en la O.A.U. y así queda en su factura.
+      s.servicio = { atendio: pick(["R. Suárez", "D. Camacaro", "Técnico de la O.A.U."]), en: s.entrega, canal: "O.A.U.", informe: null, receptor: null };
+    } else if (faseIdx(s.estado) >= faseIdx("EN_AD")) {
       s.ad = `AD-${++nAD}`;
       const porEpsdc = rnd() < 0.34;
       s.transportistaTipo = porEpsdc ? "EPSDC" : "GASLARA";
@@ -1229,36 +1346,34 @@ export function generarEstadoInicial() {
     return s;
   };
 
-  /* ── Historial de Ellard: bombonas de 18 kg cada ~40 días ── */
+  /* ── Historial de Ellard: una bombona de 18 kg por ciclo, cada ~38 días ──
+     Es el usuario del portal: empieza agosto sin pedidos en curso y sin saldo, para que la
+     demo recorra su pedido completo desde el portal hasta la factura. */
   const E = "4340817";
-  [[2025, 11, 8], [2026, 0, 18], [2026, 1, 26], [2026, 3, 5], [2026, 4, 14], [2026, 5, 24]].forEach(([a, mm, dd]) => {
+  [[2026, 0, 18], [2026, 1, 26], [2026, 3, 5], [2026, 4, 14], [2026, 5, 24]].forEach(([a, mm, dd]) => {
     nueva({ usuario: E, concepto: "BOMB_18", cantidad: 1, fecha: new Date(a, mm, dd), estado: "CULMINADO" });
   });
   nueva({ usuario: E, concepto: "VIS_TEC", cantidad: 1, fecha: new Date(2026, 6, 2), estado: "CULMINADO" });
-  nueva({ usuario: E, concepto: "BOMB_18", cantidad: 1, fecha: new Date(2026, 6, 1), estado: "CULMINADO" });
   nueva({ usuario: E, concepto: "RENO_MEN", cantidad: 1, fecha: new Date(2026, 6, 20), estado: "CULMINADO" });
-  // Pedido entregado y facturado hace días
-  nueva({ usuario: E, concepto: "BOMB_18", cantidad: 1, fecha: new Date(2026, 7, 3), estado: "CULMINADO", banco: "BDV" });
-  // Pedido en despacho ahora mismo — el que se ve en ambos lados
-  nueva({ usuario: E, concepto: "BOMB_18", cantidad: 1, fecha: new Date(2026, 7, 7), entrega: HOY,
-    estado: "EN_AD", banco: "PM", ventana: "Entre 1:00 pm y 5:00 pm", nota: "Portón azul, tocar timbre dos veces" });
-  // Pedido pagado hoy, aún sin AD — el operador lo verá en su cola
-  nueva({ usuario: E, concepto: "COD_VENTA", cantidad: 1, fecha: HOY, estado: "PAGADA", banco: "BDV" });
+  // La bombona de julio: la pidió el 29 y se la entregaron al día siguiente.
+  nueva({ usuario: E, concepto: "BOMB_18", cantidad: 1, fecha: new Date(2026, 6, 29), estado: "CULMINADO", banco: "BDV" });
 
-  /* Pagos antiguos aún pendientes de despacho: demuestran el arrastre sin descuadrar inventario. */
-  nueva({ usuario: "4340912", concepto: "BOMB_10", cantidad: 1, fecha: new Date(2026, 5, 28), estado: "PAGADA", banco: "BDV", nota: "Pago conciliado; pendiente de programación comunal" });
-  nueva({ usuario: "4341890", concepto: "BOMB_18", cantidad: 1, fecha: new Date(2026, 6, 6), estado: "PAGADA", banco: "BNC", nota: "Arrastre de julio: gas pagado aún no retirado" });
-  nueva({ usuario: "4341388", concepto: "BOMB_18", cantidad: 2, fecha: new Date(2026, 6, 19), estado: "PAGADA", banco: "PROV", nota: "Uso comercial; pendiente de despacho" });
-  nueva({ usuario: "4341055", concepto: "BOMB_10", cantidad: 1, fecha: new Date(2026, 6, 30), estado: "EN_AD", banco: "PM", nota: "Pago de julio ya asignado a ruta; todavía no entregado" });
+  /* Pagos de julio que siguen esperando despacho. Se pagaron a la tarifa de julio: con la
+     tarifa de agosto quedan "por completar" salvo que el saldo a favor cubra la diferencia. */
+  nueva({ usuario: "4341055", concepto: "BOMB_10", cantidad: 1, fecha: new Date(2026, 6, 30), estado: "PAGADA", banco: "PM", nota: "Pagado en julio; su comuna aún no tiene jornada" });
 
   /* Casos explícitos para reflejar el cierre y los despachos automatizados solicitados. */
-  nueva({ usuario: "4341890", concepto: "BOMB_10", cantidad: 2, fecha: new Date(2026, 7, 2), estado: "CULMINADO", tipoDespacho: "EXONERADO" });
+  nueva({ usuario: "4341890", concepto: "BOMB_10", cantidad: 1, fecha: new Date(2026, 7, 2), estado: "CULMINADO", tipoDespacho: "EXONERADO" });
   nueva({ usuario: "4341470", concepto: "BOMB_10", cantidad: 1, fecha: new Date(2026, 7, 4), estado: "CULMINADO", tipoDespacho: "EXONERADO" });
   nueva({ usuario: "4341735", concepto: "GRAN_RES", cantidad: 300, fecha: new Date(2026, 7, 5), estado: "CULMINADO", tipoDespacho: "INSTITUCION", condicionVenta: "CONTADO" });
 
   /* ── Movimiento del resto de usuarios durante agosto ── */
   const otros = USUARIOS.filter((u) => u.id !== E && !u.sinActividadDemo && u.comuna !== COMUNA_PORTAL.id);
   const pesos = ["BOMB_10", "BOMB_10", "BOMB_18", "BOMB_18", "BOMB_27", "GRAN_RES", "GRAN_COM", "GAS_CARB", "VIS_TEC", "CAMB_DIR", "RENO_MEN", "RENO_MAY", "COD_VENTA"];
+  // El tope es una bombona por núcleo familiar y ciclo: la semilla lo respeta como el sistema.
+  const bombonaEnCiclo = new Set(solicitudes
+    .filter((s) => cpt(s.concepto).bombona && cicloDistribucion(s.fecha) === cicloDistribucion(HOY))
+    .map((s) => s.usuario));
 
   for (let dia = 1; dia <= 8; dia++) {
     const f = new Date(2026, 7, dia);
@@ -1266,10 +1381,13 @@ export function generarEstadoInicial() {
     for (let i = 0; i < cuantos; i++) {
       const u = pick(otros);
       let concepto = pick(pesos);
-      const c = cpt(concepto);
       const segmento = segmentoUsuario(u);
       if (segmento === "RESIDENCIAL" && (concepto === "BOMB_27" || concepto === "GRAN_COM" || concepto === "GAS_CARB")) concepto = pick(["BOMB_10", "BOMB_18"]);
       if (segmento === "COMERCIAL" && (concepto === "GRAN_RES")) concepto = pick(["BOMB_10", "BOMB_18", "BOMB_27", "GRAN_COM"]);
+      if (segmento === "RESIDENCIAL" && cpt(concepto).bombona) {
+        if (bombonaEnCiclo.has(u.id)) concepto = pick(["VIS_TEC", "CAMB_DIR", "RENO_MEN"]);
+        else bombonaEnCiclo.add(u.id);
+      }
 
       let tipo = "COMERCIAL";
       const r = rnd();
@@ -1278,7 +1396,7 @@ export function generarEstadoInicial() {
       else if (r < 0.07) tipo = "EXONERADO";
 
       let cantidad = 1;
-      if (cpt(concepto).bombona) cantidad = 1 + Math.floor(rnd() * (cpt(concepto).id === "BOMB_27" ? 6 : 2));
+      if (cpt(concepto).bombona && segmento !== "RESIDENCIAL") cantidad = 1 + Math.floor(rnd() * (cpt(concepto).id === "BOMB_27" ? 6 : 2));
       if (cpt(concepto).granel) cantidad = (2 + Math.floor(rnd() * 10)) * 50;
 
       const rr = rnd();
@@ -1291,55 +1409,34 @@ export function generarEstadoInicial() {
     }
   }
 
-  /* ── Jornada comunal demo: GasLara entrega un lote consolidado a la comuna.
-     Las solicitudes siguen siendo individuales para pago/trazabilidad, pero las residenciales
-     se entregan físicamente juntas el mismo día al responsable comunal. ── */
+  /* ── La comuna del portal: Barquisimeto Centro ──
+     Sus pedidos de agosto entran a una jornada comunal (la semilla la planifica y la pone
+     en marcha con las mismas funciones que usa Distribución). Los usos comerciales van
+     por entrega directa, en una AD especial. ── */
   const miembrosComunaDemo = USUARIOS.filter((u) => u.comuna === COMUNA_PORTAL.id);
   const idsComunaDemo = new Set(miembrosComunaDemo.map((u) => u.id));
   for (let i = solicitudes.length - 1; i >= 0; i--) {
     const s0 = solicitudes[i];
     if (idsComunaDemo.has(s0.usuario) && cpt(s0.concepto).bombona && s0.estado !== "CULMINADO") solicitudes.splice(i, 1);
   }
-  const jornada = new Date(2026, 7, 12);
   const planComunal = [
-    ["4340817", "BOMB_18", new Date(2026, 7, 7)],
     ["4340912", "BOMB_10", new Date(2026, 6, 20)],
     ["4341190", "BOMB_18", new Date(2026, 7, 6)],
     ["4341388", "BOMB_18", new Date(2026, 7, 5)],
     ["4341890", "BOMB_10", new Date(2026, 6, 22)],
-    ["4341954", "BOMB_10", new Date(2026, 7, 4)],
     ["4342186", "BOMB_10", new Date(2026, 7, 3)],
     ["4342298", "BOMB_18", new Date(2026, 7, 2)],
   ];
   planComunal.forEach(([usuario, concepto, pagoFecha]) => {
-    const u = usr(usuario);
-    const residencial = segmentoUsuario(u) === "RESIDENCIAL";
-    nueva({
-      usuario, concepto, cantidad: 1, fecha: pagoFecha, estado: "PAGADA", banco: pick(["BDV", "BNC", "PROV", "PM"]),
-      entrega: residencial ? jornada : sumarDias(HOY, 2),
-      jornadaComunal: residencial ? "JC-BQTO-120826" : null,
-      modalidadEntrega: residencial ? "COMUNA" : "DIRECTA_COMERCIAL",
-      nota: residencial ? "Incluida en la jornada comunal consolidada del 12/08" : "Entrega directa autorizada por uso comercial",
-    });
+    nueva({ usuario, concepto, cantidad: 1, fecha: pagoFecha, estado: "PAGADA", banco: pick(["BDV", "BNC", "PROV", "PM"]) });
   });
 
-  /* Normalización de rutas: cada comuna residencial recibe una sola jornada consolidada. */
-  const fechaJornadaPorComuna = {
-    "COM-BQTO-01": new Date(2026, 7, 12), "COM-CABU-01": new Date(2026, 7, 13),
-    "COM-CARO-01": new Date(2026, 7, 14), "COM-QUIB-01": new Date(2026, 7, 15),
-    "COM-PEND-01": new Date(2026, 7, 16),
-  };
+  /* Modalidad de entrega: la jornada comunal para el uso residencial; la entrega directa
+     (AD especial) para comercios e instituciones. La fecha la pone la AD, no el pedido. */
   solicitudes.forEach((s0) => {
     if (s0.estado === "CULMINADO" || !cpt(s0.concepto).bombona) return;
-    if (segmentoUsuario(s0.usuario) === "RESIDENCIAL") {
-      const f = fechaJornadaPorComuna[s0.comuna] || sumarDias(HOY, 4);
-      s0.modalidadEntrega = "COMUNA";
-      s0.jornadaComunal = `JC-${s0.comuna}-${String(f.getDate()).padStart(2, "0")}08`;
-      s0.entrega = f;
-    } else {
-      s0.modalidadEntrega = "DIRECTA_COMERCIAL";
-      s0.jornadaComunal = null;
-    }
+    s0.modalidadEntrega = segmentoUsuario(s0.usuario) === "RESIDENCIAL" ? "COMUNA" : "DIRECTA_COMERCIAL";
+    s0.jornadaComunal = null;
   });
 
   solicitudes.sort((a, b) => b.fecha - a.fecha || (b.id > a.id ? 1 : -1));
@@ -1386,8 +1483,10 @@ export function generarEstadoInicial() {
   ];
 
   /* ── Libro de saldos a favor ──
-     Incluye el caso textual del requerimiento: transfiere 3.000 Bs por una bombona
-     de 1.700 y quedan 1.300 Bs abonados a su código. */
+     El saldo casi siempre nace de un error del usuario: transfirió de más, pagó dos
+     veces o desistió. Incluye el caso textual del requerimiento: transfiere 3.000 Bs por
+     una bombona de 1.700 y quedan 1.300 Bs abonados a su código. La semilla descuenta
+     después cada saldo en el siguiente pedido del usuario, igual que el sistema. */
   let nABO = 400;
   const abono = (usuario, fecha, tipo, monto, referencia, detalle, extra = {}) => {
     nABO += 1;
@@ -1398,17 +1497,15 @@ export function generarEstadoInicial() {
     abono("4340817", new Date(2026, 6, 1), "ABONO_EXCEDENTE", 1300,
       "884210", "Transfirió Bs 3.000,00 por bombona de 18 kg tarifada en Bs 1.700,00", { banco: "BDV" }),
     abono("4340912", new Date(2026, 6, 12), "ABONO_NO_COMPRA", 1386.08,
-      "AD-1361", "Planificada en la jornada del 12/07 y no retiró", { ad: "AD-1361", cdt: "CDT-JL" }),
+      "AD-1361", "Canceló su pedido de julio antes de la jornada", { ad: "AD-1361", cdt: "CDT-JL" }),
     abono("4341190", new Date(2026, 6, 20), "ABONO_NO_COMPRA", 2494.94,
-      "AD-1368", "No se encontraba en el punto al momento de la entrega", { ad: "AD-1368", cdt: "CDT-JL" }),
-    abono("4340912", new Date(2026, 7, 3), "CONSUMO", 900,
-      "SOL-2431", "Devengado en compra posterior", { solicitud: "SOL-2431" }),
+      "AD-1368", "Desistió en el punto: no quiso comprar ese día", { ad: "AD-1368", cdt: "CDT-JL" }),
     abono("4342186", new Date(2026, 7, 5), "ABONO_EXCEDENTE", 640.5,
-      "884553", "Excedente de transferencia", { banco: "PM" }),
-    abono("4341502", new Date(2026, 7, 9), "ABONO_DEVOLUCION", 1663.29,
-      "AD-1374", "Entrega no concretada · cilindro devuelto a planta", { ad: "AD-1374", cdt: "CDT-JGI" }),
-    abono("4342745", new Date(2026, 7, 11), "ABONO_NO_COMPRA", 924.05,
-      "AD-1379", "Ausente en la jornada comunal", { ad: "AD-1379", cdt: "CDT-JL" }),
+      "884553", "Transfirió de más", { banco: "PM" }),
+    abono("4341502", new Date(2026, 7, 9), "ABONO_EXCEDENTE", 1663.29,
+      "884771", "Pagó dos veces el mismo pedido · el segundo pago quedó como saldo", { banco: "PROV" }),
+    abono("4342745", new Date(2026, 7, 11), "ABONO_EXCEDENTE", 924.05,
+      "884902", "Repitió la transferencia por error", { banco: "BDV" }),
   ];
 
   /* ── Movimientos de planta del 13 y 14 de agosto ── */
@@ -1419,42 +1516,22 @@ export function generarEstadoInicial() {
       documento: "GAN-140382", contraparte: "PDVSA Gas · Planta Barquisimeto", kg: 24000,
       vehiculo: "Gandola A44TR8", operador: "Miguel Ángel Castillo", cedula: "V-13.772.916",
       nota: "Descarga a tanque 1 · nivel inicial 11%", estado: "CONFIRMADA" }),
-    mp({ fecha: new Date(2026, 7, 13), hora: "07:15", tipo: "SALIDA_CILINDROS", cdt: "CDT-JL",
-      documento: "CMP-130826-01", contraparte: "AD-76527 · Rastrojitos Centro", cilindros: { 10: 127, 18: 54, 43: 17 },
-      kg: kgDeCilindros({ 10: 127, 18: 54, 43: 17 }), vehiculo: "A92RT5", operador: "Luis Alberto Mendoza",
-      cedula: "V-10.934.285", nota: "Carga conforme a planificación", estado: "CONFIRMADA" }),
-    mp({ fecha: new Date(2026, 7, 13), hora: "17:52", tipo: "ENTRADA_CILINDROS", cdt: "CDT-JL",
-      documento: "CMP-130826-01-R", contraparte: "Retorno AD-76527", cilindros: { 10: 6, 18: 2 },
-      kg: kgDeCilindros({ 10: 6, 18: 2 }), vehiculo: "A92RT5", operador: "Luis Alberto Mendoza",
-      cedula: "V-10.934.285", nota: "8 cilindros no entregados · usuarios ausentes", estado: "CONFIRMADA" }),
     mp({ fecha: new Date(2026, 7, 14), hora: "05:20", tipo: "ENTRADA_GANDOLA", cdt: "CDT-JGI",
       documento: "GAN-140401", contraparte: "PDVSA Gas · Planta Barquisimeto", kg: 18500,
       vehiculo: "Gandola A71QW2", operador: "Miguel Ángel Castillo", cedula: "V-13.772.916",
       nota: "Descarga a tanque 2", estado: "CONFIRMADA" }),
-    mp({ fecha: new Date(2026, 7, 14), hora: "06:48", tipo: "SALIDA_CILINDROS", cdt: "CDT-JL",
-      documento: "CMP-140826-01", contraparte: "AD-76892 · La Lagunita", cilindros: { 10: 109, 18: 11, 43: 2 },
-      kg: kgDeCilindros({ 10: 109, 18: 11, 43: 2 }), vehiculo: "A73KD2", operador: "José Manuel Rodríguez",
-      cedula: "V-12.845.733", nota: "Jornada comunal José Gregorio Bastidas", estado: "CONFIRMADA" }),
-    mp({ fecha: new Date(2026, 7, 14), hora: "07:05", tipo: "SALIDA_CILINDROS", cdt: "CDT-JL",
-      documento: "CMP-140826-02", contraparte: "AD-76539 · Las Playitas", cilindros: { 10: 176, 18: 13, 43: 14 },
-      kg: kgDeCilindros({ 10: 176, 18: 13, 43: 14 }), vehiculo: "A92RT5", operador: "Luis Alberto Mendoza",
-      cedula: "V-10.934.285", nota: "Ruta 6 · Tamaca", estado: "CONFIRMADA" }),
+    /* Mismo despacho que registra Granel (DG-4471): el medidor marcó 3.175 L y los kilos
+       salen del factor único del sistema. Antes aquí decía 1.600 kg y no cuadraba. */
     mp({ fecha: new Date(2026, 7, 14), hora: "08:10", tipo: "SALIDA_GANDOLA", cdt: "CDT-JL",
-      documento: "GAN-140418", contraparte: "Parque Viviendo Hugo Chávez · granel residencial", kg: 1600,
+      documento: "GAN-140418", contraparte: "Parque Viviendo Hugo Chávez · granel residencial", kg: litrosAKg(3175),
       vehiculo: "D18GL7", operador: "Miguel Ángel Castillo", cedula: "V-13.772.916",
-      nota: "Despacho granel a tanque de condominio", estado: "CONFIRMADA" }),
+      nota: "Despacho granel a tanque de condominio · 3.175 L de medidor", estado: "CONFIRMADA" }),
     mp({ fecha: new Date(2026, 7, 14), hora: "09:30", tipo: "SALIDA_GANDOLA", cdt: "CDT-JGI",
       documento: "GAN-140423", contraparte: "Planta móvil PM-01 · Jiménez", kg: 3200,
       vehiculo: "D18GL7", operador: "Miguel Ángel Castillo", cedula: "V-13.772.916",
       nota: "Abastecimiento de planta móvil para jornada de llenado", estado: "CONFIRMADA" }),
-    mp({ fecha: new Date(2026, 7, 14), hora: "11:12", tipo: "ENTRADA_VACIOS", cdt: "CDT-JL",
-      documento: "CMP-140826-V1", contraparte: "Retorno de envases · comunas Tamaca", cilindros: { 10: 143, 18: 22 },
-      kg: 0, vehiculo: "A92RT5", operador: "Luis Alberto Mendoza", cedula: "V-10.934.285",
-      nota: "Envases vacíos para llenado", estado: "CONFIRMADA" }),
-    mp({ fecha: new Date(2026, 7, 14), hora: "13:40", tipo: "SALIDA_CILINDROS", cdt: "CDT-JGI",
-      documento: "CMP-140826-03", contraparte: "AD-76988 · Zona Centro / Unión", cilindros: { 10: 5, 18: 12, 43: 40 },
-      kg: kgDeCilindros({ 10: 5, 18: 12, 43: 40 }), vehiculo: "B41MX8", operador: "Carlos Eduardo Pérez",
-      cedula: "V-14.217.604", nota: "Ruta comercial", estado: "PENDIENTE_CIERRE" }),
+    // La recolección, el llenado y la devolución de cada AD los registra la semilla con
+    // las mismas funciones de la jornada: salen de las AD, no de una lista escrita a mano.
   ];
 
   return {
@@ -1479,14 +1556,49 @@ export function solicitudesDeRutas(rutas = [], beneficiariosFn, inicio = {}) {
   const parque = [];
   const abonos = [];
   const referenciasVistas = new Set();
+  // Las personas de las comunidades pagaron el 12/08; la AD se planifica después.
+  const FECHA_PAGO = new Date(2026, 7, 12);
+  const BANCOS_RUTA = ["BDV", "BNC", "PROV", "PM"];
 
   rutas.forEach((r) => {
-    if (["INSTITUCIÓN", "COMERCIO"].includes(r.bloque)) return;
     const comuna = COMUNAS.find((c) => c.nombre.toUpperCase() === String(r.comuna).toUpperCase())
       || COMUNAS.find((c) => c.sector?.toUpperCase().includes(String(r.parroquia).toUpperCase()))
       || COMUNAS[0];
     const cdt = comuna.cdt || CDTS[0].id;
-    const adActivo = r.estadoRuta !== "SIN_PLANIFICAR" && r.ad && String(r.ad) !== "0";
+
+    /* Instituciones y comercios: un cliente con contrato que pide varios cilindros por
+       formato. Antes su AD no tenía ninguna solicitud detrás y por eso nunca podía cerrarse. */
+    if (["INSTITUCIÓN", "COMERCIO"].includes(r.bloque)) {
+      const segmento = r.bloque === "INSTITUCIÓN" ? "INSTITUCIONAL" : "COMERCIAL";
+      const cliente = `${r.id}-CLI`;
+      registrarBeneficiario({
+        id: cliente, nombre: r.comunidad, cedula: segmento === "INSTITUCIONAL" ? "G-20000184-0" : `J-50${String(nPED).slice(-6)}-1`,
+        comunidad: r.comunidad, parroquia: r.parroquia || comuna.sector, rutaId: r.id, comunaId: comuna.id, cdt,
+        segmento, contrato: `C-${r.id}`,
+      });
+      [10, 18, 27, 43].forEach((kg, k) => {
+        const cant = Number(r.cilindros[kg] || 0);
+        if (!cant) return;
+        nSOL += 1; nPED += 7; nREF += 131;
+        const concepto = `BOMB_${kg}`;
+        const m = montos(concepto, cant, cliente, FECHA_PAGO);
+        const referencia = String(nREF);
+        referenciasVistas.add(referencia);
+        solicitudes.push({
+          id: `SOL-${nSOL}`, pedidoNro: nPED, usuario: cliente, cdt, comuna: comuna.id,
+          concepto, cantidad: cant, tipoDespacho: segmento === "INSTITUCIONAL" ? "INSTITUCION" : "COMERCIAL",
+          condicionVenta: "CONTADO", fecha: FECHA_PAGO, entrega: null, ventana: "Entrega directa", nota: "",
+          jornadaComunal: null, modalidadEntrega: "DIRECTA_COMERCIAL", estado: "PAGADA",
+          operador: null, unidad: null, ayudante: null, transportistaTipo: null, epsdc: null, ad: null,
+          rutaId: r.id, comunidad: r.comunidad, parroquia: r.parroquia,
+          boleta: null, factura: null, serie: null, control: null, historialAD: [],
+          ...m, cubierto: m.total, saldoAplicado: 0,
+          pago: { banco: BANCOS_RUTA[k % 4], referencia, fecha: FECHA_PAGO, estado: "VERIFICADO", auto: true, canal: "PORTAL",
+            montoRecibido: m.total, regla: "EXACTO", detalleRegla: "Monto y referencia cuadran", resueltoEn: FECHA_PAGO },
+        });
+      });
+      return;
+    }
 
     (beneficiariosFn(r) || []).forEach((p, i) => {
       nSOL += 1; nPED += 7; nREF += 131;
@@ -1512,7 +1624,7 @@ export function solicitudesDeRutas(rutas = [], beneficiariosFn, inicio = {}) {
 
       // El pago lo confirma la API contra el banco y la regla se aplica sola: la
       // solicitud nace resuelta. Nadie aprueba nada.
-      const m = montos(concepto, 1, p.id, HOY);
+      const m = montos(concepto, 1, p.id, FECHA_PAGO);
       const canal = i % 3 === 0 ? "PAGO_MOVIL" : i % 7 === 1 ? "COMUNAL" : "PORTAL";
       // Casos que la regla resuelve sola, en la proporción en que ocurren de verdad.
       const desvio = i % 197 === 9 ? 0.82 : i % 197 === 60 ? 1.35 : 1;
@@ -1525,101 +1637,82 @@ export function solicitudesDeRutas(rutas = [], beneficiariosFn, inicio = {}) {
       const res = p.pagado
         ? aplicarReglaPago({ montoRecibido: recibido, totalFacturado: m.total, referencia, referenciasVistas })
         : null;
-      if (p.pagado) referenciasVistas.add(referencia);
+      if (p.pagado && res?.regla !== "REFERENCIA_DUPLICADA") referenciasVistas.add(referencia);
 
-      const enAD = adActivo && res?.estadoSolicitud === "PAGADA";
       if (res?.abono) {
         nABO += 1;
         abonos.push({
-          id: `ABO-R${nABO}`, usuario: p.id, fecha: new Date(2026, 7, 12), tipo: res.abono.tipo,
+          id: `ABO-R${nABO}`, usuario: p.id, fecha: FECHA_PAGO, tipo: res.abono.tipo,
           monto: res.abono.monto, referencia, detalle: `${reglaPago(res.regla).nombre} · ${res.detalle}`,
-          solicitud: idSol, banco: ["BDV", "BNC", "PROV", "PM"][i % 4], automatico: true,
+          solicitud: idSol, banco: BANCOS_RUTA[i % 4], automatico: true,
         });
       }
+      // Dinero aplicado al pedido: exacto o de más cubren el total; de menos cubre lo que llegó.
+      const cubierto = !res || res.regla === "REFERENCIA_DUPLICADA" ? 0 : Math.min(m.total, recibido);
 
       solicitudes.push({
         id: idSol, pedidoNro: nPED, usuario: p.id, cdt, comuna: comuna.id,
         concepto, cantidad: 1, tipoDespacho: "COMERCIAL", condicionVenta: "CONTADO",
-        fecha: new Date(2026, 7, 14), entrega: new Date(2026, 7, 14),
+        fecha: FECHA_PAGO, entrega: null,
         ventana: "Jornada comunal", nota: "",
-        jornadaComunal: `JC-${comuna.id}-1408`, modalidadEntrega: "COMUNA",
-        estado: enAD ? "EN_AD" : (res?.estadoSolicitud || "SIN_PAGO"),
-        motivoNoCompra: res?.regla === "MONTO_MENOR" ? reglaPago(res.regla).nombre : undefined,
-        operador: enAD ? r.conductor : null, unidad: enAD ? r.unidad : null,
-        ayudante: enAD ? r.ayudante : null,
-        transportistaTipo: enAD ? r.transportistaTipo : null, epsdc: enAD ? r.epsdc : null,
-        ad: enAD ? String(r.ad) : null,
-        rutaId: r.id, comunidad: p.comunidad, parroquia: p.parroquia,
-        boleta: null, factura: null, serie: null, control: null,
-        ...m,
+        jornadaComunal: null, modalidadEntrega: "COMUNA",
+        // Pagada queda por planificar: la AD la convoca la semilla con `planificarAD()`.
+        estado: res?.estadoSolicitud || "SIN_PAGO",
+        operador: null, unidad: null, ayudante: null, transportistaTipo: null, epsdc: null, ad: null,
+        rutaId: r.id, comunidad: p.comunidad, parroquia: p.parroquia, ordenEnRuta: i,
+        boleta: null, factura: null, serie: null, control: null, historialAD: [],
+        ...m, cubierto, saldoAplicado: 0,
         pago: res
-          ? { banco: ["BDV", "BNC", "PROV", "PM"][i % 4], referencia, fecha: new Date(2026, 7, 12),
+          ? { banco: BANCOS_RUTA[i % 4], referencia, fecha: FECHA_PAGO,
               estado: res.estadoPago, auto: true, canal, montoRecibido: recibido,
-              regla: res.regla, detalleRegla: res.detalle, resueltoEn: new Date(2026, 7, 12) }
-          : { banco: null, referencia: null, fecha: null, estado: "SIN_PAGO", auto: false, canal: null },
+              regla: res.regla, detalleRegla: res.detalle, resueltoEn: FECHA_PAGO, intentos: [] }
+          : { banco: null, referencia: null, fecha: null, estado: "SIN_PAGO", auto: false, canal: null, intentos: [] },
       });
     });
   });
 
-  /* ── Lo que pasa después de un rechazo ────────────────────────────────────────
-     Una regla rechaza un pago y ahí no termina la historia: la persona vuelve a
-     intentar. Sin esto el sistema mostraría un solo tipo de caso repetido veintitantas
-     veces, y en la calle no se ve así. Aquí se reproduce lo que ocurre de verdad:
-
+  /* ── Lo que pasa después de un rechazo o de un pago corto ─────────────────────
+     La persona vuelve a intentar. Aquí se reproduce lo que ocurre de verdad:
        · unos reportan otra vez la misma referencia, creyendo que se perdió;
-       · otros transfieren corto y al día siguiente mandan un comprobante que no es suyo.
-
-     Ese segundo intento es el que produce el patrón que ninguna regla puede cerrar. */
-  const rechazadas = solicitudes.filter((s) => s.pago?.estado === "RECHAZADO");
-  const reintento = (base, dia, referencia, montoRecibido, nota) => {
-    nSOL += 1; nPED += 7;
-    const res = aplicarReglaPago({
-      montoRecibido, totalFacturado: base.total, referencia, referenciasVistas,
-    });
-    referenciasVistas.add(referencia);
-    const id = `SOL-${nSOL}`;
-    if (res.abono) {
-      nABO += 1;
-      abonos.push({
-        id: `ABO-R${nABO}`, usuario: base.usuario, fecha: new Date(2026, 7, dia), tipo: res.abono.tipo,
-        monto: res.abono.monto, referencia, detalle: `${reglaPago(res.regla).nombre} · ${res.detalle}`,
-        solicitud: id, banco: base.pago.banco, automatico: true,
-      });
-    }
-    solicitudes.push({
-      ...base, id, pedidoNro: nPED, ad: null, operador: null, unidad: null, ayudante: null,
-      transportistaTipo: null, epsdc: null, boleta: null, factura: null, serie: null, control: null,
-      fecha: new Date(2026, 7, dia), entrega: new Date(2026, 7, dia + 2),
-      estado: res.estadoSolicitud, nota,
-      motivoNoCompra: res.regla === "MONTO_MENOR" ? reglaPago(res.regla).nombre : undefined,
-      pago: {
-        ...base.pago, referencia, fecha: new Date(2026, 7, dia), estado: res.estadoPago,
-        montoRecibido, regla: res.regla, detalleRegla: res.detalle, resueltoEn: new Date(2026, 7, dia),
-      },
-    });
+       · otros transfieren corto y al día siguiente, para completar, mandan un
+         comprobante que no es suyo.
+     Cada intento queda en el pago de SU pedido —no es un pedido nuevo— y la regla lo
+     rechaza. El patrón que se forma entre varios intentos es lo que ninguna regla puede
+     cerrar y lo único que Comercialización tiene que mirar. */
+  const intento = (s, dia, referencia, monto, nota) => {
+    const res = aplicarReglaPago({ montoRecibido: monto, totalFacturado: s.total, referencia, referenciasVistas });
+    s.pago.intentos = [...(s.pago.intentos || []), {
+      referencia, monto, fecha: new Date(2026, 7, dia), regla: res.regla, estado: res.regla === "REFERENCIA_DUPLICADA" ? "RECHAZADO" : res.estadoPago,
+      detalle: res.regla === "REFERENCIA_DUPLICADA" ? res.detalle : `${nota}`, nota,
+    }];
   };
-
-  // Insisten con su propia referencia: el mismo comprobante mandado tres veces.
-  rechazadas.filter((_, k) => k % 9 === 2).slice(0, 4).forEach((s) => {
-    reintento(s, 13, s.pago.referencia, s.pago.montoRecibido, "Reportó de nuevo el mismo comprobante");
-    reintento(s, 15, s.pago.referencia, s.pago.montoRecibido, "Tercer reporte del mismo comprobante");
+  const conProblema = solicitudes.filter((s) => ["RECHAZADO", "INCOMPLETO"].includes(s.pago?.estado));
+  // Insisten con su propia referencia: el mismo comprobante mandado dos veces más.
+  conProblema.filter((_, k) => k % 5 === 1).slice(0, 4).forEach((s) => {
+    intento(s, 13, s.pago.referencia, s.pago.montoRecibido, "Reportó de nuevo el mismo comprobante");
+    intento(s, 15, s.pago.referencia, s.pago.montoRecibido, "Tercer reporte del mismo comprobante");
   });
-
-  // Transfirieron corto y al otro día mandaron un comprobante ajeno.
-  rechazadas.filter((s) => s.pago.regla === "MONTO_MENOR").filter((_, k) => k % 7 === 3).slice(0, 5)
-    .forEach((s, k) => {
-      const ajena = rechazadas[(k * 3 + 1) % rechazadas.length]?.pago.referencia
-        || solicitudes.find((x) => x.pago?.estado === "VERIFICADO")?.pago.referencia;
-      if (ajena) reintento(s, 16, ajena, s.total, "Reportó un comprobante que no está a su nombre");
-    });
+  // Para completar un pago corto, mandaron un comprobante ajeno.
+  const verificadas = solicitudes.filter((x) => x.pago?.estado === "VERIFICADO" && x.pago.referencia);
+  conProblema.filter((s) => s.pago.regla === "MONTO_MENOR").slice(0, 5).forEach((s, k) => {
+    const ajena = verificadas[(k * 37 + 11) % verificadas.length]?.pago.referencia;
+    if (ajena) intento(s, 16, ajena, Number((s.total - (s.cubierto || 0)).toFixed(2)), "Reportó un comprobante que no está a su nombre");
+  });
 
   return { solicitudes, parque, abonos, seq: { sol: nSOL, ped: nPED, ref: nREF, abo: nABO } };
 }
 
-/** Parque de envases de los usuarios del padrón, uno por contrato. */
-export function parqueDelPadron() {
+/** Parque de envases de los usuarios del padrón, uno por contrato. El formato sale de lo
+    que cada quien pide: quien compra la de 10 kg tiene registrada una de 10 kg, y el aviso
+    del parque no salta contra su propio historial. */
+export function parqueDelPadron(solicitudes = []) {
+  const ultimoKg = new Map();
+  solicitudes.filter((s) => cpt(s.concepto).bombona)
+    .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))
+    .forEach((s) => ultimoKg.set(s.usuario, cpt(s.concepto).kg));
   return USUARIOS.map((u, i) => {
-    const kg = /Comercial/i.test(u.tipoContrato || "") ? 27 : /Granel/i.test(u.tipoContrato || "") ? 0 : 18;
+    const kg = ultimoKg.get(u.id)
+      || (/Comercial/i.test(u.tipoContrato || "") ? 27 : /Granel/i.test(u.tipoContrato || "") ? 0 : 18);
     if (!kg) return null;
     const enTaller = i % 13 === 4;
     const sinEnvase = i % 11 === 7;
@@ -1675,8 +1768,10 @@ export const facturasDe = (sols, manuales) => [
   ...sols.filter((s) => s.factura).map((s) => ({
     id: s.factura, serie: s.serie, control: s.control, sol: s.id, ad: s.ad, pedidoNro: s.pedidoNro,
     fecha: s.entrega, cdt: s.cdt, comuna: s.comuna || usr(s.usuario).comuna, usuario: s.usuario, concepto: s.concepto, cantidad: s.cantidad,
-    base: s.base, iva: s.iva, total: s.total, exento: s.exento, origen: "AUTOMATICA", pago: s.pago,
-    tipoDespacho: s.tipoDespacho, condicionVenta: s.condicionVenta,
+    base: s.base, iva: s.iva, total: s.total, exento: s.exento, precioUnitario: s.precioUnitario,
+    // Del cierre de un AD, o de un servicio culminado en la O.A.U.: los dos se facturan solos.
+    origen: s.servicio ? "SERVICIO" : "AUTOMATICA", pago: s.pago, canal: s.canalVenta || null,
+    tipoDespacho: s.tipoDespacho, condicionVenta: s.condicionVenta, condicionTarifa: s.condicionTarifaAplicada || "REGULAR",
     transportistaTipo: s.transportistaTipo, epsdc: s.epsdc,
   })),
   ...manuales,
@@ -1709,21 +1804,23 @@ export const movimientosDe = (sols, manuales = []) => [
    Criterio de afectación al inventario, para no contar dos veces:
    · Gandola (entrada o salida): afecta el inventario físico del CDT de una vez,
      porque el movimiento ocurre en la planta.
-   · Cilindros: la carga del camión se registra como TRÁNSITO, no como salida contable.
-     La salida contable la sigue produciendo la BOP al cerrar el AD, y lo que el camión
-     devuelve se concilia contra esa carga. */
+   · Cilindros de la jornada: el camión sale VACÍO a recoger. Las bombonas de los usuarios
+     entran a planta (recolección), se llenan (llenado) y vuelven al punto (devolución).
+     El llenado queda "por cerrar" hasta que se cierra el AD: la salida contable la produce
+     la BOP en el cierre, y en ese momento el llenado queda conciliado. El mismo kilo nunca
+     baja dos veces. */
 
 export const TIPOS_MOV_PLANTA = [
   { id: "ENTRADA_GANDOLA", nombre: "Recepción por gandola", medio: "GANDOLA", signo: 1, afectaStock: true,
     desc: "Ingreso de GLP a granel al tanque del CDT" },
   { id: "SALIDA_GANDOLA", nombre: "Despacho por gandola", medio: "GANDOLA", signo: -1, afectaStock: true,
     desc: "Salida de GLP a granel hacia cliente o planta móvil" },
-  { id: "SALIDA_CILINDROS", nombre: "Carga de cilindros", medio: "CILINDROS", signo: -1, afectaStock: false,
-    desc: "Cilindros llenos cargados al vehículo · queda en tránsito" },
-  { id: "ENTRADA_CILINDROS", nombre: "Retorno de cilindros", medio: "CILINDROS", signo: 1, afectaStock: false,
-    desc: "Cilindros llenos no entregados que regresan a planta" },
-  { id: "ENTRADA_VACIOS", nombre: "Recepción de envases vacíos", medio: "CILINDROS", signo: 0, afectaStock: false,
-    desc: "Envases retornados por el usuario · no mueve GLP" },
+  { id: "RECOLECCION", nombre: "Recepción de bombonas recolectadas", medio: "CILINDROS", signo: 0, afectaStock: false,
+    desc: "Bombonas vacías de los usuarios que entran a planta para llenarse · no mueve GLP" },
+  { id: "LLENADO", nombre: "Llenado de bombonas de la jornada", medio: "CILINDROS", signo: -1, afectaStock: false,
+    desc: "GLP que pasa del tanque a las bombonas · queda por cerrar hasta que se cierra el AD" },
+  { id: "DEVOLUCION", nombre: "Devolución al punto comunal", medio: "CILINDROS", signo: 0, afectaStock: false,
+    desc: "Bombonas que vuelven al punto, llenas o vacías si estaban malas · no mueve GLP" },
 ];
 export const tipoMovPlanta = (id) => TIPOS_MOV_PLANTA.find((t) => t.id === id) || TIPOS_MOV_PLANTA[0];
 
@@ -1742,14 +1839,18 @@ export const existenciasDe = (movs = [], movsPlanta = []) => {
   return base;
 };
 
-/** Cilindros cargados que aún no han sido entregados ni devueltos. */
-export const transitoDe = (movsPlanta = []) =>
-  movsPlanta.reduce((acc, m) => {
-    const t = tipoMovPlanta(m.tipo);
-    if (t.medio !== "CILINDROS" || t.id === "ENTRADA_VACIOS") return acc;
-    acc[m.cdt] = Number(((acc[m.cdt] || 0) + -t.signo * Number(m.kg || 0)).toFixed(2));
+/** GLP llenado en bombonas de AD que todavía no se cierran, por CDT. Al cerrar el AD la BOP
+ *  produce la salida y ese llenado deja de estar "por cerrar". */
+export const llenadoPorCerrarDe = (movsPlanta = [], rutas = []) => {
+  const cerradas = new Set(rutas.filter((r) => r.estadoRuta === "CERRADA").map((r) => String(r.ad)));
+  return movsPlanta.reduce((acc, m) => {
+    if (m.tipo !== "LLENADO" || cerradas.has(String(m.ad))) return acc;
+    acc[m.cdt] = Number(((acc[m.cdt] || 0) + Number(m.kg || 0)).toFixed(2));
     return acc;
   }, {});
+};
+/** Compatibilidad: el "tránsito" es hoy el llenado por cerrar. */
+export const transitoDe = (movsPlanta = [], rutas = []) => llenadoPorCerrarDe(movsPlanta, rutas);
 
 /* ── Ciclo de consumo del cliente del portal (histórico real) ── */
 export function cicloDe(sols, usuarioId) {

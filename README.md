@@ -2,6 +2,18 @@
 
 Prototipo navegable con datos demostrativos. No tiene backend: el estado vive en memoria y se reinicia al recargar la página.
 
+> **Cómo leer este documento.** Es una bitácora: cada sección lleva su fecha y las posteriores
+> corrigen a las anteriores. **La descripción vigente del sistema es la última sección,
+> [«Reforma del flujo y concordancia · 11/09/2026»](#reforma-del-flujo-y-concordancia--11092026).**
+> Lo anterior se conserva como historia de las decisiones.
+
+```bash
+npm install
+npm run dev          # http://localhost:5173
+npm run build        # compila
+npm run verificar    # comprueba el flujo y que las cifras cuadren entre pantallas
+```
+
 ## Página inicial del proyecto
 
 El prototipo abre en **Proyecto**, una página ejecutiva ubicada junto al acceso a los portales. Allí se explican los problemas operativos, la solución propuesta, el flujo completo y el alcance de **Comercialización**, **Portal Comuna**, **Operaciones** y **Portal del usuario**.
@@ -743,3 +755,222 @@ más la vista local `Planificar`. `DistribucionExtra.jsx` pasó de 300 a 57 lín
 planificar, 25 activas, 27 todas), el listado nominal abre con 124 personas, y el ciclo
 completo de incidencia —registrar, confirmar, resolver— mueve la AD de *Activas* a *Con
 incidencia* y de vuelta a *En ruta*. Las seis caras cargan sin errores de consola.
+
+---
+
+# Reforma del flujo y concordancia · 11/09/2026
+
+Una lectura completa del prototipo, una investigación de cómo opera GasLara en 2026 y una
+prueba del flujo en vivo mostraron lo mismo: **las piezas estaban bien, pero cada pantalla
+contaba su propia versión de los datos.** El mismo «pendiente por despachar» aparecía con
+cuatro cifras distintas; Distribución planificaba sobre una lista y cerraba sobre otra; lo
+que se pedía por el portal nunca llegaba a un AD. Esta reforma no agrega módulos: ajusta el
+flujo a como funciona de verdad y hace que todas las pantallas lean lo mismo.
+
+## Cómo funciona GasLara (lo que confirmó la investigación)
+
+- **Prepago con contrato** en el portal oficial (sistema SARGUS – Autana Tepuy) o en la
+  taquilla de la O.A.U.; los mismos bancos que usa el prototipo.
+- **Recolección, no canje:** cada quien lleva su bombona vacía al punto comunal, se llena en
+  planta y vuelve llena al mismo punto. En el punto sólo se reciben cilindros en buen estado.
+- **Una bombona por familia**, con el censo en manos de los líderes comunitarios.
+- **Precios que cambian cada mes** (el primer día hábil, indexados al dólar BCV) con una
+  inflación de 8,9 % mensual en agosto de 2026: un saldo guardado pierde valor rápido.
+- Hay entregas casa a casa y taller de renovación de cilindros: la base real de la AD
+  especial y de la reparación de bombonas malas.
+
+Fuentes principales: gaslara.gob.ve · lara.gob.ve (02/09/2025, 04/09/2025, 02/06/2026,
+27/07/2026, 14/08/2026) · La Prensa de Lara · Noticias Barquisimeto · Radio Fe y Alegría ·
+Crónica.Uno · Runrun.es · BCV · Tu Gaceta Oficial (Providencia SENIAT) · FII.
+
+## Las decisiones que gobiernan el flujo
+
+| Decisión | Qué hace el sistema |
+|---|---|
+| Todo es prepago | El pedido nace del portal o de la taquilla; la API aplica la regla de pago |
+| Sólo lo pagado entra a un AD | El planificador sólo ofrece pedidos pagados completos |
+| Salen diez, vuelven diez | El camión sale vacío a recoger; toda bombona recogida vuelve al punto, llena o vacía |
+| La empresa termina en el punto | Si el dueño la retira o no, ya no le compete a GasLara: se retiraron la consignación comunal y la entrega a miembros |
+| Problema → replanificación | No estaba, no llevó su bombona, bombona mala, falla de planta: el pedido sigue vivo y va a la bandeja de Distribución |
+| AD especial por usuario | El gerente de Distribución arma rutas por domicilio con lo que el sistema le muestra |
+| Saldo a favor, último recurso | Sólo si el usuario desiste, si Distribución decide no replanificar o si vence el ciclo |
+| Precio actual | Si la tarifa sube mientras el pedido espera, queda **por completar**; el saldo cubre primero |
+| El menor saldo posible | Transfirió de menos → por completar (ya no se abona y cancela) |
+| Sin reembolsos · tope 1 por núcleo | Sin cambios |
+
+## Los estados
+
+**Solicitud:** sin pago · por completar · pagada · en AD · por replanificar · entregada ·
+abonada. El ciudadano ve cuatro peldaños (pago, pagado, en jornada, lista en tu punto); los
+estados laterales se le muestran como aviso con su motivo.
+
+**AD, por momentos:** por planificar → planificada → en recolección → en planta → devuelta
+al punto → cerrada (más «con incidencia» y «reprogramada»). Cada momento tiene una sola
+acción siguiente y el AD sólo se cierra cuando las bombonas ya están en el punto.
+
+**Motivos de la jornada:** en la recolección (no se encontraba, no llevó su bombona, bombona
+rechazada por mal estado, formato distinto, dirección no ubicada, desistió, canceló) y en
+planta (bombona mala, falla de la planta). Cada uno dice si replanifica o abona.
+
+## La arquitectura
+
+```
+src/datos.jsx     El dominio: reglas, constantes, precios, montos, generador de la semilla
+src/flujo.js      Las transiciones del pedido y del AD, y las cifras que leen todas las pantallas
+src/semilla.js    El estado inicial, construido ejecutando el flujo con esas mismas funciones
+src/App.jsx       El estado vivo: aplica los resultados de flujo.js y reparte `compartido`
+scripts/verificar.mjs   La prueba del flujo y de la concordancia (npm run verificar)
+```
+
+- **Funciones puras** para cada paso: `nuevaSolicitud`, `completarPago`, `repreciar`,
+  `planificarAD`, `salidaAD`, `recoleccionAD`, `llenadoAD`, `cerrarADPuro`, `abonarPedido`,
+  `vencerPlazos`. La app las usa al pulsar un botón y la semilla para construir los datos.
+- **Una sola fuente de cifras:** `cifrasSistema()` calcula el dinero (pendiente por
+  despachar, por completar, saldo a favor, facturado del período), el GLP (físico,
+  comprometido, disponible, llenado por cerrar) y las AD. Panel, Saldos, Cierre, Centro de
+  gestión, Distribución, portada y portal leen de ahí.
+- **Una sola lista de personas:** `pedidosDistribucion()` construye la bandeja de
+  Distribución desde las solicitudes vivas; lo que entra por el portal aparece al instante.
+- **Semilla por simulación:** ayer se cerró el AD 76527 con sus problemas reales; mañana sale
+  el AD especial 76990; hoy hay un AD en cada momento de la jornada y la comuna del portal
+  (AD 76950) está en planta.
+
+## Verificación
+
+`npm run verificar` construye la semilla, comprueba sus invariantes (nadie en un AD que no
+existe, ningún AD vacío, tope respetado, pendiente pagado completo, saldos no negativos,
+cuadre de cada AD cerrada, todo lo pagado es planificable, el pendiente del cierre mensual
+es el mismo de las cifras únicas, el llenado por cerrar concilia con planta) y recorre el
+flujo: pedido del portal → aparece en Distribución → se planifica → recolección → llenado →
+cierre → factura, libro e inventario; reglas de pago; cierre del AD devuelto al punto;
+cierre del ciclo.
+
+## Qué cambió en cada pantalla
+
+- **Portal del usuario:** la escalera tiene cuatro hitos (pides y pagas · pago verificado ·
+  jornada · lista en tu punto) y los estados laterales se muestran como aviso con su motivo.
+  El pedido aplica la misma regla que la API (referencia repetida rechazada, de menos → por
+  completar, de más → saldo) y el tope por núcleo. «Completar pago» está en Inicio, Mis
+  pedidos, Seguimiento y el detalle. Seguimiento dice qué hacer en cada momento del AD.
+- **Rol coordinador de comuna:** Miembros, Recepción de jornada (el AD real por momentos:
+  convocadas, recogidas, llenadas, devueltas) e Histórico. Se retiró «Entrega a miembros»:
+  la responsabilidad de GasLara termina en el punto.
+- **Comercialización:** Panel, Solicitudes, Saldos y Cierre leen `cifrasSistema()`. La
+  taquilla registra con la misma regla, el tope y el saldo primero; «Completar pago» avisa
+  antes de registrar si la referencia ya respalda un pago. El cierre del período vence los
+  plazos (por completar y por replanificar pasan a saldo). Se retiró la consignación comunal.
+- **Distribución:** Pedidos en tiempo real sale de las solicitudes vivas; AD del día planifica
+  sólo lo pagado; Replanificación es la bandeja de problemas con el asistente de AD especial;
+  Ejecución y cierre avanza por momentos (salida → recolección → llenado → devolución →
+  cierre) y la confirmación del cierre usa la misma función que cierra. Se retiró
+  «Preparación y carga» (el camión sale vacío a recoger).
+- **Centro de gestión, portada, documentos y ficha 360°:** las mismas cifras y una bitácora
+  construida desde los eventos reales de pedidos y AD.
+
+## Ajustes finales de concordancia
+
+- **Montos al céntimo:** base, IVA y total de cada documento se redondean como en la factura
+  impresa. Antes el cierre de un AD prometía Bs 123.615,72 y el Panel subía Bs 123.615,73.
+- **Parque de envases del padrón:** el formato registrado sale del historial de cada contrato.
+  Antes a todos se les asignaba 18 kg y la taquilla avisaba «formato distinto» a quien
+  siempre pide la de 10 kg (16 avisos falsos; quedan 5, todos intencionales: envase retirado,
+  en taller o cambio de formato).
+- **Rótulos que invitaban a comparar cifras distintas:** el Panel dice «kg de GLP» de lo
+  pagado; el comprometido de Inventario incluye además los pedidos sin cobro (programa
+  social). «Pagadas · por planificar» separa el gas de los servicios por prestar, que no
+  pasan por un AD (por eso Distribución cuenta 205 y Comercialización 211).
+
+## Prueba en el navegador
+
+Se recorrieron las vistas de todos los módulos sin errores de consola y se probaron en vivo:
+
+| Prueba | Resultado |
+|---|---|
+| Cerrar el AD 76902 (devuelta al punto) | Se factura Bs 48.605,03; el Panel sube Bs 48.605,03 y el pendiente baja lo mismo |
+| AD 76892 por momentos (con no estaba, rechazo y bombona mala) | Salida → recolección → llenado → cierre; los problemas pasan a la bandeja |
+| AD especial desde la bandeja | La bandeja baja y el AD aparece planificada con sus paradas |
+| Taquilla: Bs 300 de Bs 462,02 | Por completar 27 → 28; faltante + Bs 162,02 |
+| Completar pago con la misma referencia | Aviso previo y rechazo; con una nueva, queda pagada |
+| Pedido completado | Pendiente por despachar + Bs 924,05 en Panel y Centro de gestión; aparece al instante en Distribución |
+| Rol comuna · Recepción del AD 76950 | 3 convocadas (38 kg), 2 recogidas, 1 no llevó su bombona, en planta |
+| Ellard, de punta a punta | Pide y paga en el portal → Distribución lo planifica → recolección → llenado → cierre por Bs 1.663,29 → «Lista en tu punto» y su factura (8 → 9) |
+
+## El usuario del portal empieza sin pedidos
+
+Ellard (el usuario con el que se entra al portal) arranca agosto **sin pedidos en curso y sin
+saldo**: conserva su historial facturado, pero su cupo del ciclo está libre para que la demo
+recorra su pedido completo. La AD 76950 de su comuna queda con los otros tres vecinos.
+
+## Dónde se anotan las incidencias de cada cliente
+
+En **Distribución → Ejecución y cierre**, en la tarjeta de cada AD:
+
+1. **Registrar recolección** (con la AD en recolección): la lista de todos los convocados;
+   todos arrancan como recogidos y se marca sólo a quien no se le pudo recoger, con su
+   motivo: no se encontraba · no llevó su bombona · bombona rechazada por mal estado ·
+   formato distinto · dirección no ubicada · desistió · canceló. En la ficha de la persona
+   se escribe la observación (por ejemplo, «válvula con fuga»).
+2. **Registrar llenado y devolución** (con la AD en planta): cada bombona recogida arranca
+   como llena y se marca la que vuelve vacía: bombona mala o falla de la empresa.
+3. **Cerrar AD**: la ventana de cierre abre con las **incidencias por cliente**. Ahí se
+   anota lo que el reporte del conductor trajo tarde o se corrige lo que se marcó mal
+   (devuelta llena, no recogida o volvió vacía, con su motivo y observación). El cuadre y las
+   facturas se recalculan antes de confirmar; al cerrar se rehacen la recolección, el llenado
+   y la devolución de esa AD, y cada corrección queda en la bitácora del AD y en la auditoría.
+4. **Ver personas**: después se consulta, persona por persona, qué pasó en el punto, qué
+   pasó en planta, la observación, si se corrigió al cerrar y el resultado.
+
+Lo mismo se ve en la bandeja de Replanificación, en la ficha 360° del usuario, en su portal
+(le dice por qué se reprogramó), en el rol de comuna y en Comercialización. «Registrar
+incidencia» es otra cosa: un problema de toda la AD (el camión, la ruta), no de un cliente.
+
+## Otros ajustes de la prueba en vivo
+
+- La jornada es el día en que sale el camión: «AD del día» propone hoy, y si una AD sale en
+  otra fecha, su fecha de jornada pasa a ser la real (la planificada queda guardada).
+- Los servicios y el granel ya no dicen «Lista en tu punto» en el portal: dicen «Servicio
+  prestado» o «Despachado».
+- Plurales correctos con una sola persona («1 persona», «1 bombona recogida»).
+
+## Distribución no ve bolívares
+
+Distribución registra lo físico; los montos los ve Comercialización.
+
+- **Cierre del AD:** dice cuántas facturas se emiten y cuántas bombonas salen del inventario,
+  no por cuánto. Quien desistió «pasa a su saldo a favor», sin cifra.
+- **Planta móvil:** kilos, cilindros, usuarios con y sin código y ventas registradas. El
+  arqueo de caja (efectivo y transferencias) pasó a Comercialización → Ventas sin contrato.
+- **Planificar un AD:** la lista muestra a toda la comunidad que pidió, con una columna
+  «Pago»: pagado (con su fecha), por completar, sin pago o pago rechazado. Sólo los pagados
+  se pueden seleccionar; el resto se ve con su estado, nunca con montos.
+- `npm run verificar` falla si alguna pantalla de Distribución vuelve a mostrar montos.
+
+## App móvil de operadores (cara «App operadores»)
+
+Se presenta dentro de un teléfono. El operador entra con su nombre y ve dos trabajos que no
+se mezclan:
+
+- **Despacho de AD · prepago, sin cobro (verde).** Sus AD con la ruta (punto comunal o paradas
+  por domicilio), la lista de clientes de cada AD separada en «pagaron» (se recoge su
+  bombona) y «no pagaron» (por completar, sin pago o pago rechazado: no se recoge), con la
+  bombona de cada uno según el parque de envases. Registra la recolección y el llenado
+  persona por persona con su motivo y observación, corrige en el punto y al final marca
+  **Despachado** con los cilindros planificados, recogidos, entregados llenos y devueltos
+  vacíos. **No cierra el AD:** eso lo hace sólo Distribución, que ve el reporte del operador
+  en la tarjeta de la AD y en la ventana de cierre («Cuadra con lo que se va a cerrar» o
+  el aviso si no coincide).
+- **Venta en planta móvil · con cobro (azul).** Venta a usuarios con código (respeta el tope
+  por núcleo y nace entregada y facturada) o sin código (código genérico, tope por venta).
+  Cobro en efectivo (con vuelto), punto de venta, pago móvil o transferencia (referencia sin
+  repetir). Lista de cobros y cierre de caja con el efectivo contado. Cada venta entra al
+  libro de ventas y al arqueo de Comercialización → Ventas sin contrato.
+
+Para probar: Julio César Silva tiene AD en recolección, en planta y despachada; Rafael
+Antonio Torres opera la planta móvil de hoy.
+
+## Libro de ventas: tipo por fila
+
+Cada asiento muestra su **tipo de despacho** (comercial, exonerado, institucional, venta sin
+contrato…) con la **condición tarifaria** (regular, exonerada o protegida) y el
+**tratamiento del IVA** (exento o gravado 16 %). Hay un filtro por tipo y el CSV trae las tres
+columnas.

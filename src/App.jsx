@@ -1,50 +1,49 @@
 import React, { useState, useRef, useMemo } from "react";
-import { Users, Building2, Calculator, Route } from "lucide-react";
+import { Users, Building2, Calculator, Route, AlertTriangle, RotateCcw, Smartphone } from "lucide-react";
 import {
-  CLIENTE_PORTAL, COMUNA_PORTAL, HOY, cpt, tpd, usr, montos, generarEstadoInicial,
-  boletasDe, facturasDe, movimientosDe, existenciasDe, compromisosDe, disponiblesDe,
-  cicloDe, sumarDias, kgDeSolicitud, USUARIOS, COMUNAS,
-  saldosDe, aplicarSaldo, ESTADO_ABONADA, tipoMovPlanta, kgALitros,
-  estadoPadronDe, codigoGenerico, esCodigoGenerico,
-  solicitudesDeRutas, parqueDelPadron, envasesDe, validarCanje, motivoNoEntrega,
-  puedeSolicitar, consignacionesDe, cicloDistribucion, kgDeCilindros,
-  aplicarReglaPago, reglaPago, incidenciaPrevia, motivoEstadoPadron,
+  CLIENTE_PORTAL, HOY, cpt, tpd, usr, montos, boletasDe, facturasDe, movimientosDe, existenciasDe,
+  compromisosDe, disponiblesDe, cicloDe, USUARIOS, COMUNAS, saldosDe, ESTADO_ABONADA, tipoMovPlanta,
+  kgALitros, estadoPadronDe, codigoGenerico, reglaPago, incidenciaPrevia, motivoEstadoPadron,
+  dineroAplicadoDe, finDeCiclo, etiquetaCiclo, PERIODO, BANCOS, TOPE_UNIDADES_GENERICO,
 } from "./datos.jsx";
+import {
+  nuevaSolicitud, completarPago as completarPagoPuro, planificarAD as planificarADPuro, salidaAD as salidaADPuro,
+  recoleccionAD, llenadoAD, corregirJornadaAD, cerrarADPuro, abonarPedido as abonarPedidoPuro, vencerPlazos, nuevoAbono,
+  cifrasSistema, pedidosDistribucion, gruposPorPlanificar, bandejaReplanificacion, bitacoraEventos,
+  marcarDespachadoAD, ventaPlantaMovil, validarCobroPM, cajaPlantaMovil,
+} from "./flujo.js";
+import { construirEstadoInicial } from "./semilla.js";
 import PortalUsuario from "./PortalUsuario.jsx";
 import Comercializacion from "./Comercializacion.jsx";
 import Proyecto from "./Proyecto.jsx";
 import Nomina from "./Nomina.jsx";
 import Distribucion from "./Distribucion.jsx";
 import CentroGestion from "./CentroGestion.jsx";
-import { crearAsignacionesIniciales, beneficiariosDeRuta } from "./distribucionSeed.js";
+import AppOperador from "./AppOperador.jsx";
 import Tema from "./Tema.jsx";
 
-/* Un solo universo de datos.
-   Antes la planificación vivía por su cuenta y las solicitudes por la suya, sin compartir
-   un identificador. Aquí la planificación se convierte en solicitudes reales del sistema,
-   de modo que Distribución y Comercialización miren la misma lista. */
-const INICIAL = generarEstadoInicial();
-const RUTAS_INICIALES = crearAsignacionesIniciales();
-const DESDE_RUTAS = solicitudesDeRutas(RUTAS_INICIALES, beneficiariosDeRuta, INICIAL.seq);
-const SOLICITUDES_INICIALES = [...INICIAL.solicitudes, ...DESDE_RUTAS.solicitudes];
-const PARQUE_INICIAL = [...parqueDelPadron(), ...DESDE_RUTAS.parque];
-const ABONOS_INICIALES = [...INICIAL.abonos, ...DESDE_RUTAS.abonos];
+/* Un solo universo de datos, construido con el mismo flujo que usan las pantallas
+   (ver `src/semilla.js`). Se reinicia al recargar la página: no hay backend. */
+const INICIAL = construirEstadoInicial();
 
 export default function App() {
   const [cara, setCara] = useState("proyecto");
-  const [solicitudes, setSolicitudes] = useState(SOLICITUDES_INICIALES);
+  const [solicitudes, setSolicitudes] = useState(INICIAL.solicitudes);
   const [manuales, setManuales] = useState(INICIAL.manuales);
   const [reclamos, setReclamos] = useState(INICIAL.reclamos);
-  const [abonos, setAbonos] = useState(ABONOS_INICIALES);
+  const [abonos, setAbonos] = useState(INICIAL.abonos);
   const [movPlanta, setMovPlanta] = useState(INICIAL.movPlanta);
-  const [parqueEnvases, setParqueEnvases] = useState(PARQUE_INICIAL);
-  const [periodoCerrado, setPeriodoCerrado] = useState(false);
-  const [rutasDistribucion, setRutasDistribucion] = useState(RUTAS_INICIALES);
+  const [parqueEnvases, setParqueEnvases] = useState(INICIAL.parqueEnvases);
+  const [periodoCerrado, setPeriodoCerradoEstado] = useState(false);
+  const [cierrePeriodo, setCierrePeriodo] = useState(null);
+  const [rutasDistribucion, setRutasDistribucion] = useState(INICIAL.rutas);
+  // Cierre de caja de cada jornada de planta móvil, declarado por el operador en la app.
+  const [cajasPM, setCajasPM] = useState({});
   // El padrón vive en el módulo `datos.jsx` y lo consultan decenas de puntos vía `usr()`.
   // Para que una edición se refleje en todos ellos a la vez, se actualiza el registro en
   // sitio y se incrementa esta versión, que fuerza el recálculo de las vistas.
   const [padronV, setPadronV] = useState(0);
-  const seq = useRef({ ...INICIAL.seq, ...DESDE_RUTAS.seq });
+  const seq = useRef({ ...INICIAL.seq });
 
   const boletas = useMemo(() => boletasDe(solicitudes, manuales), [solicitudes, manuales]);
   const facturas = useMemo(() => facturasDe(solicitudes, manuales), [solicitudes, manuales]);
@@ -54,111 +53,19 @@ export default function App() {
   const disponibles = useMemo(() => disponiblesDe(existencias, compromisos), [existencias, compromisos]);
   const ciclo = useMemo(() => cicloDe(solicitudes, CLIENTE_PORTAL.id), [solicitudes]);
   const saldos = useMemo(() => saldosDe(abonos), [abonos]);
-  const consignaciones = useMemo(() => consignacionesDe(solicitudes), [solicitudes]);
 
-  /**
-   * SOLICITUD MANUAL · el único caso en que Comercialización crea un pedido.
-   *
-   * El portal genera las solicitudes solo y la API resuelve el pago. Esta vía existe
-   * para quien llega a la taquilla sin usar el portal: entonces el operador anota todo
-   * — usuario, producto, canal, monto recibido, referencia y por qué se registró a mano —
-   * y queda constancia de quién lo hizo. La regla de pago se aplica igual que si viniera
-   * del portal: nadie decide a mano lo que una regla resuelve.
-   */
-  function crearSolicitudManual(d) {
-    const u = usr(d.usuario);
-    const cupo = puedeSolicitar(u, solicitudes, d.concepto, Number(d.cantidad || 1));
-    if (!cupo.ok) return { ok: false, error: cupo.motivo };
-
-    const canje = validarCanje(envasesDe(parqueEnvases, u.id), cpt(d.concepto).kg);
-    if (cpt(d.concepto).bombona && !canje.ok) return { ok: false, error: canje.motivo };
-
-    const m = montos(d.concepto, Number(d.cantidad || 1), u.id, HOY);
-    const referencia = String(d.referencia || "").trim();
-    const recibido = Number(d.montoRecibido || m.total);
-    const referenciasVistas = new Set(solicitudes.map((s) => s.pago?.referencia).filter(Boolean));
-    const res = aplicarReglaPago({ montoRecibido: recibido, totalFacturado: m.total, referencia, referenciasVistas });
-
-    seq.current.sol += 1; seq.current.ped += 7;
-    const id = `SOL-${seq.current.sol}`;
-    const nueva = {
-      id, pedidoNro: seq.current.ped, usuario: u.id, cdt: d.cdt || u.cdt, comuna: u.comuna,
-      concepto: d.concepto, cantidad: Number(d.cantidad || 1), tipoDespacho: d.tipoDespacho || "COMERCIAL",
-      condicionVenta: u.condicionVenta || "CONTADO",
-      fecha: HOY, entrega: sumarDias(HOY, 3), ventana: d.canal === "TAQUILLA" ? "Retiro en taquilla" : "Jornada comunal",
-      nota: d.observacion || "", jornadaComunal: null,
-      modalidadEntrega: d.canal === "TAQUILLA" ? "DIRECTA_COMERCIAL" : "COMUNA",
-      estado: res.estadoSolicitud,
-      motivoNoCompra: res.regla === "MONTO_MENOR" ? reglaPago(res.regla).nombre : undefined,
-      operador: null, unidad: null, transportistaTipo: null, epsdc: null,
-      ad: null, boleta: null, factura: null, serie: null, control: null,
-      ...m,
-      origenRegistro: "MANUAL",
-      registro: {
-        por: d.operador || "Comercialización", en: HOY,
-        motivo: d.motivoRegistro, canal: d.canal,
-        observacion: d.observacion || null,
-      },
-      pago: {
-        banco: d.banco || null, referencia: referencia || null, fecha: HOY,
-        estado: res.estadoPago, auto: false, canal: d.canal, montoRecibido: recibido,
-        regla: res.regla, detalleRegla: res.detalle, resueltoEn: HOY,
-      },
-    };
-    setSolicitudes((p) => [nueva, ...p]);
-
-    if (res.abono) {
-      setAbonos((p) => [nuevoAbono(u.id, res.abono.tipo, res.abono.monto, referencia || id,
-        `${reglaPago(res.regla).nombre} · ${res.detalle}`, { solicitud: id, banco: d.banco, automatico: true }), ...p]);
-    }
-    return { ok: true, solicitud: nueva, regla: res.regla, detalle: res.detalle, abono: res.abono?.monto || 0 };
-  }
-
-  /**
-   * Revertir una resolución automática cuando el usuario reclama y tiene razón.
-   *
-   * Sólo aplica a los dos casos en que la regla le negó el gas: transfirió de menos y
-   * referencia duplicada. Si esa solicitud había generado un abono, ese abono se anula
-   * en el mismo acto — de lo contrario la persona se quedaría con la bombona y con el
-   * dinero acreditado. La reversión exige motivo y deja constancia de quién y cuándo.
-   */
-  function revertirResolucionPago(sol, nota, quien) {
-    if (sol.pago?.estado !== "RECHAZADO") {
-      return { ok: false, error: "Sólo se revierte una resolución que le negó el despacho al usuario." };
-    }
-    if (!String(nota || "").trim()) {
-      return { ok: false, error: "La reversión requiere motivo: queda en la bitácora." };
-    }
-    const responsable = quien || "Comercialización";
-    setSolicitudes((p) => p.map((s) => (s.id === sol.id ? {
-      ...s, estado: "PAGADA", motivoNoCompra: undefined,
-      pago: { ...s.pago, estado: "VERIFICADO", revertida: true, revertidaPor: responsable,
-        revertidaEn: HOY, notaReversion: String(nota).trim() },
-    } : s)));
-
-    /* El abono que produjo la regla deja de estar disponible: ese dinero ya paga esta
-       entrega. El monto se calcula sobre el estado actual y no dentro del actualizador,
-       porque React ejecuta ese callback después de que esta función haya retornado. */
-    const anulado = abonos
-      .filter((a) => a.solicitud === sol.id && !a.anulado)
-      .reduce((t, a) => t + Number(a.monto || 0), 0);
-    setAbonos((p) => p.map((a) => (a.solicitud !== sol.id || a.anulado ? a : {
-      ...a, anulado: true, anuladoPor: responsable, anuladoEn: HOY,
-      detalleAnulacion: `Reversión de ${reglaPago(sol.pago.regla).nombre} · el saldo pasa a cubrir ${sol.id}`,
-    })));
-    return { ok: true, anulado };
-  }
-
-  /* esolverIncidenciaPago se retiro el 01/09/2026: las tres reglas de pago son
-     deterministas y ahora las aplica plicarReglaPago al recibir el dinero.
-     Comercializacion no aprueba lo que una regla ya decidio; solo puede revertir. */
+  /* Las cifras del sistema se calculan UNA vez y todas las pantallas las leen de aquí. */
+  const cifras = useMemo(() => cifrasSistema({ solicitudes, abonos, facturas, rutas: rutasDistribucion, movPlanta, existencias, compromisos, disponibles }),
+    [solicitudes, abonos, facturas, rutasDistribucion, movPlanta, existencias, compromisos, disponibles]);
+  const pedidos = useMemo(() => pedidosDistribucion(solicitudes, rutasDistribucion), [solicitudes, rutasDistribucion]);
+  const gruposPlanificar = useMemo(() => gruposPorPlanificar(solicitudes, rutasDistribucion), [solicitudes, rutasDistribucion]);
+  const bandeja = useMemo(() => bandejaReplanificacion(solicitudes, parqueEnvases), [solicitudes, parqueEnvases]);
+  const bitacora = useMemo(() => bitacoraEventos({ solicitudes, abonos, rutas: rutasDistribucion, reclamos }), [solicitudes, abonos, rutasDistribucion, reclamos]);
 
   // Comunas sin jornada planificada: su gente no debe contar días de inactividad,
   // porque la falta de movimiento es imputable a la empresa y no al usuario.
   const comunasSinJornada = useMemo(() => {
-    const conJornada = new Set(
-      solicitudes.filter((s) => s.jornadaComunal && s.estado !== "CULMINADO").map((s) => s.comuna)
-    );
+    const conJornada = new Set(solicitudes.filter((s) => s.rutaId || s.estado === "EN_AD").map((s) => s.comuna));
     return new Set(COMUNAS.filter((c) => !conJornada.has(c.id)).map((c) => c.id));
   }, [solicitudes]);
 
@@ -167,98 +74,97 @@ export default function App() {
     [solicitudes, abonos, comunasSinJornada, padronV]
   );
 
-  /* ─── Acciones compartidas ─── */
+  /* ─── Aplicar el resultado de una función del flujo ───
+     Cada función pura devuelve el estado nuevo de lo que tocó; aquí se asienta. */
+  const estadoActual = () => ({ solicitudes, abonos, parque: parqueEnvases, rutas: rutasDistribucion, movPlanta });
+  function asentar(res) {
+    if (!res?.ok) return res;
+    if (res.solicitudes) setSolicitudes(res.solicitudes);
+    if (res.abonos?.length) setAbonos((p) => [...res.abonos, ...p]);
+    if (res.parque) setParqueEnvases(res.parque);
+    if (res.rutas) setRutasDistribucion(res.rutas);
+    if (res.movPlanta?.length) setMovPlanta((p) => [...res.movPlanta, ...p]);
+    return res;
+  }
+  /* Cerrado el período, nada con fecha de agosto se registra ni se modifica. */
+  const bloqueo = () => (periodoCerrado
+    ? { ok: false, error: `El período de ${PERIODO.label.toLowerCase()} está cerrado: no se registran operaciones con fecha de este período. Recarga la página para volver al inicio de la demo.` }
+    : null);
 
-  // El usuario crea una solicitud. El pago se concilia automáticamente contra el banco.
-  // El saldo a favor se devenga primero: si tiene abono, cubre parte del total y solo
-  // transfiere la diferencia. Si transfiere de más, el excedente queda abonado a su código.
+  /* ═══════════  PEDIR Y PAGAR  ═══════════ */
+
+  /** El ciudadano pide desde el portal. Misma vía que la taquilla: tope, saldo primero y regla de pago. */
   function crearSolicitud(d) {
-    const u = usr(CLIENTE_PORTAL.id);
-    const m = montos(d.concepto, d.cantidad, u.id, HOY);
-    const saldoPrevio = saldos[u.id] || 0;
-    const reparto = aplicarSaldo(m.total, saldoPrevio);
-    const transferido = d.montoTransferido != null ? Number(d.montoTransferido) : reparto.porPagar;
-    const excedente = Number((transferido - reparto.porPagar).toFixed(2));
-
-    seq.current.sol += 1; seq.current.ped += 7; seq.current.ref += 131;
-    const id = `SOL-${seq.current.sol}`;
-    const nueva = {
-      id, pedidoNro: seq.current.ped, usuario: u.id, cdt: u.cdt, comuna: u.comuna,
-      concepto: d.concepto, cantidad: Number(d.cantidad), tipoDespacho: "COMERCIAL",
-      condicionVenta: u.condicionVenta || "CONTADO",
-      fecha: HOY, entrega: sumarDias(HOY, 4), ventana: "Jornada comunal", nota: d.nota || "",
-      jornadaComunal: "JC-BQTO-PROX", modalidadEntrega: "COMUNA",
-      estado: "PAGADA", operador: null, unidad: null, transportistaTipo: null, epsdc: null,
-      ad: null, boleta: null, factura: null, serie: null, control: null,
-      ...m,
-      saldoAplicado: reparto.devengado, montoTransferido: transferido,
-      pago: { banco: d.banco, referencia: String(seq.current.ref), fecha: HOY, estado: "VERIFICADO", auto: true },
-    };
-    setSolicitudes((p) => [nueva, ...p]);
-
-    const nuevos = [];
-    if (reparto.devengado > 0) {
-      nuevos.push(nuevoAbono(u.id, "CONSUMO", reparto.devengado, id,
-        `Devengado en ${id} · ${cpt(d.concepto).corto}`, { solicitud: id }));
-    }
-    if (excedente > 0.009) {
-      nuevos.push(nuevoAbono(u.id, "ABONO_EXCEDENTE", excedente, String(seq.current.ref),
-        `Transfirió Bs ${transferido.toFixed(2)} sobre Bs ${reparto.porPagar.toFixed(2)} por pagar`,
-        { banco: d.banco, solicitud: id }));
-    }
-    if (nuevos.length) setAbonos((p) => [...nuevos, ...p]);
-
-    return { ...nueva, saldoPrevio, devengado: reparto.devengado, excedenteAbonado: Math.max(0, excedente) };
+    const b = bloqueo(); if (b) return b;
+    const res = nuevaSolicitud(estadoActual(), {
+      usuario: CLIENTE_PORTAL.id, concepto: d.concepto, cantidad: d.cantidad, banco: d.banco,
+      referencia: d.referencia, montoRecibido: d.montoTransferido, nota: d.nota,
+      canal: d.banco === "PM" ? "PAGO_MOVIL" : "PORTAL", origen: "PORTAL",
+    }, seq.current);
+    if (!res.ok) return res;
+    setSolicitudes((p) => [res.solicitud, ...p]);
+    if (res.abonos.length) setAbonos((p) => [...res.abonos, ...p]);
+    return res;
   }
-
-  function nuevoAbono(usuario, tipo, monto, referencia, detalle, extra = {}) {
-    seq.current.abo += 1;
-    return {
-      id: `ABO-${seq.current.abo}`, usuario, fecha: HOY, tipo,
-      monto: Number(Number(monto).toFixed(2)), referencia, detalle, ...extra,
-    };
-  }
-
-  /** Registra manualmente un movimiento en el libro de saldos a favor. */
-  function registrarAbono(d) {
-    const mov = nuevoAbono(d.usuario, d.tipo, d.monto, d.referencia || "—", d.detalle || "", d.extra || {});
-    setAbonos((p) => [mov, ...p]);
-    return mov;
-  }
-
-  /* registrarNoCompra se retiró el 01/09/2026.
-     Ofrecía motivos de entrega fallida sobre pedidos que nunca habían salido a ruta —
-     «no se encontraba en el punto» de alguien a quien nadie fue a buscar— y siempre
-     terminaba abonando, incluso cuando la falla era de la empresa y el pedido debía
-     seguir vivo. Lo que ocurre en la calle lo marca el operador en `cerrarAD()`; lo que
-     ocurre antes de despachar es `registrarIncidenciaPrevia()`, aquí abajo. */
 
   /**
-   * INCIDENCIA SOBRE UNA SOLICITUD PAGADA QUE NO HA SALIDO A RUTA.
-   *
-   * Reemplaza al botón «No compró», que era incorrecto: hablaba de una entrega que nunca
-   * se intentó y siempre terminaba abonando, incluso cuando el problema era de la empresa
-   * y el pedido debía seguir vivo.
-   *
-   * Ahora la consecuencia la fija el motivo, no el operador:
-   *   CIERRA   → la solicitud pasa a ABONADA, libera GLP y cupo, y el dinero va al saldo
-   *   RETIENE  → el pedido sigue pendiente; queda la constancia y, si toca, se marca el padrón
+   * SOLICITUD MANUAL · el único caso en que Comercialización crea un pedido: quien llega a la
+   * taquilla sin usar el portal. El operador anota todo y la regla de pago se aplica igual.
+   */
+  function crearSolicitudManual(d) {
+    const b = bloqueo(); if (b) return b;
+    const res = nuevaSolicitud(estadoActual(), {
+      usuario: d.usuario, concepto: d.concepto, cantidad: d.cantidad, banco: d.banco, referencia: d.referencia,
+      montoRecibido: d.montoRecibido, nota: d.observacion, canal: d.canal || "TAQUILLA", origen: "TAQUILLA",
+      tipoDespacho: d.tipoDespacho, cdt: d.cdt,
+      registro: { por: d.operador || "Comercialización", en: HOY, motivo: d.motivoRegistro || null, canal: d.canal || "TAQUILLA", observacion: d.observacion || null },
+    }, seq.current);
+    if (!res.ok) return res;
+    setSolicitudes((p) => [res.solicitud, ...p]);
+    if (res.abonos.length) setAbonos((p) => [...res.abonos, ...p]);
+    return { ...res, abono: res.excedente };
+  }
+
+  /** Completar un pedido por completar: primero el saldo, después la transferencia. */
+  function completarPago(solicitudId, d = {}) {
+    const b = bloqueo(); if (b) return b;
+    return asentar(completarPagoPuro(estadoActual(), solicitudId, d, seq.current));
+  }
+
+  /**
+   * Revertir una referencia rechazada por repetida cuando el usuario demuestra que era suya.
+   * Los pagos cortos ya no se revierten: quedan por completar y se completan.
+   */
+  function revertirResolucionPago(sol, nota, quien) {
+    const b = bloqueo(); if (b) return b;
+    const actual = solicitudes.find((x) => x.id === sol.id) || sol;
+    if (actual.pago?.estado !== "RECHAZADO") return { ok: false, error: "Sólo se revierte una referencia rechazada por repetida." };
+    if (!String(nota || "").trim()) return { ok: false, error: "La reversión requiere motivo: queda en la bitácora." };
+    const responsable = quien || "Comercialización";
+    const cubierto = Math.min(Number(actual.total), Number(actual.pago.montoRecibido || 0) + Number(actual.saldoAplicado || 0));
+    const completo = cubierto >= Number(actual.total) - 0.01;
+    const actualizada = {
+      ...actual, estado: completo ? "PAGADA" : "POR_COMPLETAR", cubierto,
+      pago: { ...actual.pago, estado: completo ? "VERIFICADO" : "INCOMPLETO", revertida: true, revertidaPor: responsable,
+        revertidaEn: HOY, notaReversion: String(nota).trim() },
+    };
+    setSolicitudes((p) => p.map((s) => (s.id === actual.id ? actualizada : s)));
+    return { ok: true, anulado: 0, estado: actualizada.estado };
+  }
+
+  /**
+   * INCIDENCIA SOBRE UNA SOLICITUD QUE NO HA SALIDO A RUTA.
+   * La consecuencia la fija el motivo: CIERRA (decisión del usuario o corrección: pasa a
+   * saldo a favor) o RETIENE (el pedido sigue vivo con la constancia).
    */
   function registrarIncidenciaPrevia(sol, motivoId, nota, quien) {
+    const b = bloqueo(); if (b) return b;
     const actual = solicitudes.find((x) => x.id === sol.id) || sol;
-    if (!actual || actual.estado === "CULMINADO" || actual.estado === ESTADO_ABONADA) {
-      return { ok: false, error: "La solicitud ya está cerrada." };
-    }
-    if (actual.estado === "EN_AD") {
-      return { ok: false, error: "Ya está en distribución: la incidencia la registra el operador en la jornada." };
-    }
+    if (!actual || ["CULMINADO", ESTADO_ABONADA].includes(actual.estado)) return { ok: false, error: "La solicitud ya está cerrada." };
+    if (actual.estado === "EN_AD") return { ok: false, error: "Ya está convocada en un AD: lo que pase en la jornada lo registra Distribución." };
     const m = incidenciaPrevia(motivoId);
     const responsable = String(quien || "").trim() || "Comercialización";
-    const registro = {
-      motivo: m.id, nombre: m.nombre, consecuencia: m.consecuencia,
-      nota: String(nota || "").trim() || null, por: responsable, en: HOY,
-    };
-
+    const registro = { motivo: m.id, nombre: m.nombre, consecuencia: m.consecuencia, nota: String(nota || "").trim() || null, por: responsable, en: HOY };
     if (m.consecuencia === "RETIENE") {
       setSolicitudes((p) => p.map((s) => (s.id === actual.id
         ? { ...s, incidencia: registro, retenidaDesde: s.retenidaDesde || HOY,
@@ -266,218 +172,152 @@ export default function App() {
         : s)));
       return { ok: true, cierra: false, motivo: m, monto: 0 };
     }
-
-    const monto = Number(actual.total || 0);
+    const monto = dineroAplicadoDe(actual);
     setSolicitudes((p) => p.map((s) => (s.id === actual.id
-      ? { ...s, estado: ESTADO_ABONADA, motivoNoCompra: m.nombre, motivoId: m.id,
-          incidencia: registro, fechaAbono: HOY, abonadoBs: monto,
-          requiereVerificacionPadron: Boolean(m.marcaPadron) || s.requiereVerificacionPadron }
+      ? { ...s, estado: ESTADO_ABONADA, motivoNoCompra: m.nombre, motivoId: m.id, incidencia: registro, fechaAbono: HOY, abonadoBs: monto,
+          rutaId: s.estado === "PAGADA" ? s.rutaId : null, requiereVerificacionPadron: Boolean(m.marcaPadron) || s.requiereVerificacionPadron }
       : s)));
-    setAbonos((p) => [nuevoAbono(actual.usuario, "ABONO_NO_COMPRA", monto, actual.id,
-      `${m.nombre}${registro.nota ? ` · ${registro.nota}` : ""}`,
-      { solicitud: actual.id, cdt: actual.cdt, registradoPor: responsable }), ...p]);
+    if (monto > 0.009) {
+      setAbonos((p) => [nuevoAbono(seq.current, actual.usuario, "ABONO_NO_COMPRA", monto, actual.id,
+        `${m.nombre}${registro.nota ? ` · ${registro.nota}` : ""}`, { solicitud: actual.id, cdt: actual.cdt, registradoPor: responsable }), ...p]);
+    }
     return { ok: true, cierra: true, motivo: m, monto };
   }
 
-  /* El reintegro en efectivo se retiró el 01/09/2026. La empresa no reembolsa: todo dinero
-     que entra queda abonado al código del usuario y sólo se descarga contra un despacho
-     posterior. El saldo tiene una sola salida — `aplicarSaldo()` al facturar — y por eso
-     TIPOS_ABONO ya no contiene ningún movimiento que devuelva dinero. */
+  /* ═══════════  DISTRIBUCIÓN · LA JORNADA POR MOMENTOS  ═══════════ */
 
-  // El operador abre el AD sobre una solicitud ya pagada.
-  function abrirAD(sol, asignacion = {}) {
-    seq.current.ad += 1;
-    const id = `AD-${seq.current.ad}`;
-    const transportistaTipo = asignacion.transportistaTipo || "GASLARA";
-    setSolicitudes((p) => p.map((s) => (s.id === sol.id
-      ? {
-          ...s, estado: "EN_AD", ad: id,
-          operador: asignacion.operador || "L. Torrealba",
-          unidad: asignacion.unidad || "Placa A54BC7K",
-          transportistaTipo,
-          epsdc: transportistaTipo === "EPSDC" ? (asignacion.epsdc || "EPSDC-01") : null,
-        } : s)));
-    return id;
+  /** Planificar un AD: jornada comunal o AD especial por usuario. */
+  function planificarAD(d) {
+    const b = bloqueo(); if (b) return b;
+    return asentar(planificarADPuro(estadoActual(), { por: "Gerencia de Distribución", ...d }, seq.current));
   }
-
-  // Cuadre automático previo al cierre: sustituye un verificador obligatorio.
-  function validarCierre(sol, cantidadEntregada = null) {
-    const actual = solicitudes.find((x) => x.id === sol.id) || sol;
-    const c = cpt(actual.concepto), td = tpd(actual.tipoDespacho);
-    const qty = Number(cantidadEntregada ?? actual.cantidad);
-    const errores = [];
-    if (actual.estado !== "EN_AD" || !actual.ad) errores.push("La solicitud debe estar asignada a un AD abierto.");
-    if (td.requierePago && actual.pago?.estado !== "VERIFICADO") errores.push("El pago aún no está verificado.");
-    if (!Number.isFinite(qty) || qty <= 0 || qty > Number(actual.cantidad)) errores.push("La cantidad entregada no es válida.");
-    const kg = c.inv ? c.kg * qty : 0;
-    if (c.inv && (existencias[actual.cdt] || 0) < kg) errores.push("No hay existencia física suficiente para cerrar esta entrega.");
-    return { ok: errores.length === 0, errores, kg, qty, actual };
+  /** Salida a recolección. Fija el precio del AD: el de este día. */
+  function salidaAD(rutaId, meta = {}) {
+    const b = bloqueo(); if (b) return b;
+    return asentar(salidaADPuro(estadoActual(), rutaId, { fecha: HOY, ...meta }, seq.current));
   }
-
-  // La unidad entrega físicamente. Solo aquí se genera BOP, salida de inventario y factura.
-  // Si la recepción es parcial, el remanente conserva el pago y vuelve a la cola pendiente.
-  function entregar(sol, datos) {
-    const v = validarCierre(sol, datos.cantidadEntregada);
-    if (!v.ok) return { ok: false, errores: v.errores };
-
-    const actual = v.actual, c = cpt(actual.concepto), td = tpd(actual.tipoDespacho);
-    const qty = v.qty, restante = Number(actual.cantidad) - qty;
-    seq.current.bop += 1;
-    const bopId = `BOP-${String(seq.current.bop).padStart(4, "0")}`;
-    let serie = null, control = null;
-    if (td.factura) {
-      seq.current.serie += 1;
-      serie = `U-${String(seq.current.serie).padStart(8, "0")}`;
-      control = `01-${actual.pedidoNro}`;
+  /** Recolección en el punto: quién llevó su bombona y quién no, con su motivo. */
+  function registrarRecoleccion(rutaId, marcas = {}, meta = {}) {
+    const b = bloqueo(); if (b) return b;
+    return asentar(recoleccionAD(estadoActual(), rutaId, marcas, { fecha: HOY, ...meta }, seq.current));
+  }
+  /** Llenado en planta y devolución al punto: cuáles se llenaron y cuáles volvieron vacías. */
+  function registrarLlenado(rutaId, marcas = {}, meta = {}) {
+    const b = bloqueo(); if (b) return b;
+    return asentar(llenadoAD(estadoActual(), rutaId, marcas, { fecha: HOY, ...meta }, seq.current));
+  }
+  /** Cierre del AD: factura lo devuelto lleno, replanifica o abona lo demás. Si al cerrar se
+      anotaron o corrigieron incidencias por cliente, primero se asientan (y se rehacen los
+      movimientos de planta de esta AD) y el cierre trabaja sobre lo corregido. */
+  function cerrarAD(rutaId, meta = {}) {
+    const b = bloqueo(); if (b) return b;
+    const id = typeof rutaId === "object" ? rutaId.id : rutaId;
+    const { correcciones, ...resto } = meta;
+    let st = estadoActual();
+    let corregido = null;
+    if (correcciones && Object.keys(correcciones).length) {
+      corregido = corregirJornadaAD(st, id, correcciones, { fecha: HOY, hora: resto.hora, por: resto.por });
+      if (!corregido.ok) return corregido;
+      if (!corregido.sinCambios) st = { ...st, rutas: corregido.rutas, movPlanta: corregido.movPlantaNuevo };
     }
-    const montoEntregado = montos(actual.concepto, qty, actual.usuario, actual.fecha);
+    const res = cerrarADPuro(st, id, { fecha: HOY, ...resto }, seq.current);
+    if (!res?.ok) return res;
+    if (corregido && !corregido.sinCambios) setMovPlanta(corregido.movPlantaNuevo);
+    return asentar({ ...res, correcciones: corregido?.cambios || 0 });
+  }
+  /* ═══════════  APP DEL OPERADOR  ═══════════ */
 
-    // Regla de la Gerencia: lo que no se entregó NO vuelve a la cola de despacho.
-    // Se factura únicamente lo entregado y el valor de lo no entregado se abona al
-    // código del usuario, quedando disponible para una compra futura.
-    let abonoParcial = null;
-    if (restante > 0) {
-      const valorNoEntregado = montos(actual.concepto, restante, actual.usuario, actual.fecha).total;
-      abonoParcial = nuevoAbono(actual.usuario, "ABONO_DEVOLUCION", valorNoEntregado, actual.ad || actual.id,
-        `${restante} ${cpt(actual.concepto).unidad}(s) no entregada(s) de ${actual.id}`,
-        { ad: actual.ad || null, solicitud: actual.id, cdt: actual.cdt });
+  /** Incidencias por cliente anotadas o corregidas con el AD en el punto (app o Distribución). */
+  function corregirIncidencias(rutaId, cambios = {}, meta = {}) {
+    const b = bloqueo(); if (b) return b;
+    const res = corregirJornadaAD(estadoActual(), rutaId, cambios, { fecha: HOY, ...meta });
+    if (!res?.ok || res.sinCambios) return res;
+    setRutasDistribucion(res.rutas);
+    setMovPlanta(res.movPlantaNuevo);
+    return res;
+  }
+  /** El operador marca despachado: deja su reporte. El AD lo cierra sólo Distribución. */
+  function marcarDespachado(rutaId, meta = {}) {
+    const b = bloqueo(); if (b) return b;
+    return asentar(marcarDespachadoAD(estadoActual(), rutaId, { fecha: HOY, ...meta }));
+  }
+  /** Venta en planta móvil: con código nace entregada y facturada; sin código va contra el genérico. */
+  function venderPlantaMovil(d) {
+    const b = bloqueo(); if (b) return b;
+    if (cajasPM[d.jornada]) return { ok: false, error: "La caja de esta jornada ya se cerró: no admite ventas nuevas." };
+    if (d.usuario) {
+      const res = ventaPlantaMovil({ solicitudes, manuales }, d, seq.current);
+      if (res.ok) setSolicitudes((p) => [res.solicitud, ...p]);
+      return res;
     }
-
-    setSolicitudes((p) => p.map((s) => (s.id === actual.id ? {
-      ...s, cantidad: qty, ...montoEntregado,
-      estado: "CULMINADO", boleta: bopId, serie, control, factura: serie, entrega: HOY,
-      firma: datos.firma, receptor: datos.receptor, obsEntrega: datos.obs, horaEntrega: datos.hora,
-      entregaParcial: restante > 0, cantidadOriginal: Number(actual.cantidad),
-      cantidadNoEntregada: restante, abonoGenerado: abonoParcial?.monto || 0,
-    } : s)));
-
-    if (abonoParcial) setAbonos((p) => [abonoParcial, ...p]);
-
-    return {
-      ok: true, bopId, serie, control, kg: v.kg, factura: td.factura,
-      total: montoEntregado.total, transportistaTipo: actual.transportistaTipo || "GASLARA",
-      epsdc: actual.epsdc || null, cantidadEntregada: qty, pendienteCantidad: restante,
-      parcial: restante > 0, abonado: abonoParcial?.monto || 0, abonoId: abonoParcial?.id || null,
-    };
+    const g = codigoGenerico(d.codigoGenerico);
+    if (!g) return { ok: false, error: "Código genérico no válido." };
+    const m = montos(g.concepto, Number(d.cantidad || 1), g.id, HOY);
+    const cobro = validarCobroPM({ solicitudes, manuales }, d, m.total);
+    if (!cobro.ok) return cobro;
+    const res = crearVentaGenerica({ ...d, canal: "PLANTA_MOVIL", banco: cobro.pago.banco, referencia: cobro.pago.referencia });
+    if (!res.ok) return res;
+    // El cobro con su método (efectivo, punto de venta, pago móvil o transferencia) y la jornada.
+    const factura = { ...res.factura, jornadaPlantaMovil: d.jornada, hora: d.hora || null, pago: { ...res.factura.pago, ...cobro.pago, estado: "VERIFICADO" } };
+    setManuales((p) => p.map((f) => (f.id === factura.id ? factura : f)));
+    return { ok: true, factura, total: factura.total, vuelto: cobro.vuelto };
+  }
+  /** El operador cierra la caja de la jornada: cuenta el efectivo; Comercialización lo concilia. */
+  function cerrarCajaPM(jornadaId, d = {}) {
+    const caja = cajaPlantaMovil(jornadaId, solicitudes, manuales);
+    // La caja del día del operador: sólo lo que él cobró en efectivo desde la app.
+    const esperado = Number(caja.porMetodo.EFECTIVO.toFixed(2));
+    const contado = Number(d.efectivoContado || 0);
+    const cierre = { fecha: HOY, hora: d.hora || "—", operador: d.operador || "Operador", esperado, contado,
+      diferencia: Number((contado - esperado).toFixed(2)), total: caja.total, ventas: caja.ventas.length };
+    setCajasPM((p) => ({ ...p, [jornadaId]: cierre }));
+    return { ok: true, cierre };
   }
 
+  /** Distribución decide no replanificar un pedido: su dinero pasa al saldo a favor. */
+  function abonarPedido(solicitudId, d = {}) {
+    const b = bloqueo(); if (b) return b;
+    return asentar(abonarPedidoPuro(estadoActual(), solicitudId, { por: "Gerencia de Distribución", ...d }, seq.current));
+  }
+
+  /** Reasignar vehículo o conductor, registrar o resolver una incidencia. */
+  function actualizarRutaDistribucion(id, cambios) {
+    const b = bloqueo(); if (b) return b;
+    setRutasDistribucion((rs) => rs.map((r) => (r.id === id ? { ...r, ...cambios } : r)));
+    return { ok: true };
+  }
+
+  /* ═══════════  CIERRE DEL PERÍODO  ═══════════ */
 
   /**
-   * CIERRE DEL AD · el punto donde ocurre la venta.
-   *
-   * Recibe el resultado de la jornada persona por persona y produce, en un solo acto,
-   * todo lo que la Gerencia definió que debe ocurrir al despachar:
-   *
-   *   Entregada       → factura con el precio del DÍA DEL DESPACHO + BOP + salida de
-   *                     inventario + canje de envase (el vacío entra, el lleno sale)
-   *   No entregada    → según el motivo tipificado: abono al código del usuario, o
-   *                     reposición física sin abono si el cilindro salió defectuoso
-   *   Consignación    → lo entregado a la comuna queda bajo su custodia hasta que la
-   *                     reparta; la comuna responde ante la empresa por lo que no entregue
-   *
-   * @param resultados [{ solicitudId, entregada, motivo, envaseRecibido, observacion }]
+   * Cerrar el período es cerrar el ciclo: lo que no se replanificó ni se completó pasa al
+   * saldo a favor, y desde ese momento nada con fecha del período se registra.
    */
-  function cerrarAD(ruta, resultados = [], recepcion = {}) {
-    const porId = new Map(resultados.map((r) => [r.solicitudId, r]));
-    const afectadas = solicitudes.filter((s) => porId.has(s.id));
-    if (!afectadas.length) return { ok: false, error: "No hay pedidos que cerrar en esta AD." };
+  function cerrarPeriodo(d = {}) {
+    if (periodoCerrado) return { ok: false, error: "El período ya está cerrado." };
+    const res = vencerPlazos({ solicitudes }, finDeCiclo(HOY), seq.current, d.por || "Cierre del período");
+    setSolicitudes(res.solicitudes);
+    if (res.abonos.length) setAbonos((p) => [...res.abonos, ...p]);
+    const resumen = { en: HOY, por: d.por || "Comercialización", vencidas: res.vencidas, monto: res.monto, ciclo: etiquetaCiclo() };
+    setCierrePeriodo(resumen);
+    setPeriodoCerradoEstado(true);
+    return { ok: true, ...resumen };
+  }
+  // Compatibilidad: sólo se puede cerrar; el período no se reabre.
+  const setPeriodoCerrado = (v) => (v && !periodoCerrado ? cerrarPeriodo() : null);
 
-    const nuevosAbonos = [];
-    const cambiosEnvase = [];
-    let entregadas = 0, noEntregadas = 0, reposiciones = 0, kgSalida = 0, facturado = 0;
+  /* ═══════════  COMERCIALIZACIÓN · DOCUMENTOS Y PADRÓN  ═══════════ */
 
-    const actualizadas = afectadas.map((s) => {
-      const r = porId.get(s.id);
-      const c = cpt(s.concepto);
-
-      if (r.entregada) {
-        // El precio que manda es el del despacho, no el del pedido.
-        const m = montos(s.concepto, s.cantidad, s.usuario, HOY);
-        seq.current.bop += 1;
-        const bopId = `BOP-${String(seq.current.bop).padStart(4, "0")}`;
-        seq.current.serie += 1;
-        const serie = `U-${String(seq.current.serie).padStart(8, "0")}`;
-        entregadas += 1;
-        kgSalida += kgDeSolicitud(s);
-        facturado += m.total;
-
-        // Canje de envase: el vacío entra a planta, el lleno queda con el usuario.
-        if (r.envaseRecibido) {
-          cambiosEnvase.push({ usuario: s.usuario, kg: c.kg, estado: "EN_PLANTA_VACIO", motivo: "Recibido en canje" });
-        }
-
-        return {
-          ...s, estado: "CULMINADO", boleta: bopId, serie, control: `01-${s.pedidoNro}`,
-          factura: serie, entrega: HOY, ...m,
-          precioPedido: s.precioUnitario ?? null, precioFacturado: m.precioUnitario,
-          receptor: recepcion.receptor || null, firma: recepcion.firma || null,
-          horaEntrega: recepcion.hora || null, envaseCanjeado: Boolean(r.envaseRecibido),
-          obsEntrega: r.observacion || null,
-          consignatario: s.modalidadEntrega === "COMUNA" ? s.comuna : null,
-          estadoRetiroComuna: s.modalidadEntrega === "COMUNA" ? "PENDIENTE" : null,
-        };
-      }
-
-      const mot = motivoNoEntrega(r.motivo);
-      noEntregadas += 1;
-
-      /* La bombona se recogió y no se pudo llenar: vuelve vacía y su envase entra a
-         taller. No hay reposición en el momento, así que la persona queda con el dinero
-         abonado igual que en los demás motivos. */
-      if (mot.envaseATaller) {
-        reposiciones += 1;
-        cambiosEnvase.push({ usuario: s.usuario, kg: c.kg, estado: "EN_TALLER",
-          motivo: "Recogida y no admitió llenado · entra a taller" });
-      }
-
-      // Todos los motivos liberan el GLP y abonan el dinero al código.
-      const monto = Number(s.total || 0);
-      if (monto > 0) {
-        nuevosAbonos.push(nuevoAbono(s.usuario, "ABONO_NO_COMPRA", monto, String(ruta.ad || s.id),
-          `${mot.nombre}${r.observacion ? ` · ${r.observacion}` : ""}`,
-          { ad: String(ruta.ad || ""), solicitud: s.id, cdt: s.cdt }));
-      }
-      return {
-        ...s, estado: ESTADO_ABONADA, motivoNoCompra: mot.nombre, motivoId: mot.id,
-        fechaAbono: HOY, abonadoBs: monto, obsEntrega: r.observacion || null,
-        requiereVerificacionPadron: Boolean(mot.marcaPadron),
-      };
-    });
-
-    const mapa = new Map(actualizadas.map((s) => [s.id, s]));
-    setSolicitudes((p) => p.map((s) => mapa.get(s.id) || s));
-    if (nuevosAbonos.length) setAbonos((p) => [...nuevosAbonos, ...p]);
-
-    if (cambiosEnvase.length) {
-      setParqueEnvases((p) => p.map((e) => {
-        const cambio = cambiosEnvase.find((c) => c.usuario === e.usuario && c.kg === e.kg);
-        return cambio ? { ...e, estado: cambio.estado, motivo: cambio.motivo, desde: HOY } : e;
-      }));
-    }
-
-    // El retorno de envases vacíos y la salida de cilindros quedan asentados en planta.
-    if (entregadas > 0) {
-      seq.current.mp += 1;
-      const canjeados = cambiosEnvase.filter((c) => c.estado === "EN_PLANTA_VACIO").length;
-      setMovPlanta((p) => [{
-        id: `MP-${seq.current.mp}`, fecha: HOY, hora: recepcion.hora || "—", tipo: "ENTRADA_VACIOS",
-        cdt: afectadas[0].cdt, documento: `CMP-${ruta.ad}-V`, contraparte: `Canje AD ${ruta.ad} · ${ruta.comunidad || ""}`,
-        cilindros: null, kg: 0, litros: 0, vehiculo: ruta.unidad || "—",
-        operador: ruta.conductor || "—", cedula: ruta.conductorCedula || "—",
-        nota: `${canjeados} envases vacíos recibidos en canje`, estado: "CONFIRMADA",
-      }, ...p]);
-    }
-
-    actualizarRutaDistribucion(ruta.id, {
-      estadoRuta: noEntregadas > 0 ? "PARCIAL" : "ENTREGADA",
-      cierreDetalle: { entregadas, noEntregadas, reposiciones, kgSalida, facturado },
-      recepcion, horaEntrega: recepcion.hora || null, cerradaEn: HOY,
-    });
-
-    return { ok: true, entregadas, noEntregadas, reposiciones, kgSalida, facturado, abonos: nuevosAbonos.length };
+  /** Registra manualmente un movimiento en el libro de saldos a favor. */
+  function registrarAbono(d) {
+    const b = bloqueo(); if (b) return b;
+    const mov = nuevoAbono(seq.current, d.usuario, d.tipo, d.monto, d.referencia || "—", d.detalle || "", d.extra || {});
+    setAbonos((p) => [mov, ...p]);
+    return mov;
   }
 
   function crearManual(d) {
+    const b = bloqueo(); if (b) return b;
     const m = montos(d.concepto, Number(d.cantidad), d.usuario, HOY);
     const n = manuales.length;
     const tal = `TAL-${d.cdt.replace("CDT-", "")}-${1184 + n}`;
@@ -489,23 +329,28 @@ export default function App() {
       condicionVenta: usr(d.usuario).condicionVenta || "CONTADO",
       pago: { banco: "BDV", referencia: `88${5000 + n * 13}`, estado: "VERIFICADO", auto: false },
     }, ...p]);
+    return { ok: true };
   }
 
   /**
-   * Venta sin contrato contra un código genérico.
-   * Usa inventario, genera ingreso y entra al libro de ventas como cualquier otra venta.
-   * Se exige identificación del comprador aunque no tenga código de usuario.
+   * Venta sin contrato contra un código genérico. Usa inventario, genera ingreso, deja su
+   * boleta y entra al libro de ventas como cualquier otra venta.
    */
   function crearVentaGenerica(d) {
+    const b = bloqueo(); if (b) return b;
     const g = codigoGenerico(d.codigoGenerico);
     if (!g) return { ok: false, error: "Código genérico no válido." };
     const cantidad = Number(d.cantidad || 1);
+    if (!(cantidad > 0)) return { ok: false, error: "La cantidad no es válida." };
+    // El genérico no puede volverse el destino de lo que no se quiere justificar: tope por venta.
+    if (g.canal !== "GRANEL" && cantidad > TOPE_UNIDADES_GENERICO) {
+      return { ok: false, error: `Una venta sin contrato admite hasta ${TOPE_UNIDADES_GENERICO} bombonas.` };
+    }
+    // El efectivo de planta móvil o del CDT no pasa por un banco: se controla por arqueo.
+    const esBanco = BANCOS.some((x) => x.id === d.banco);
     const m = montos(g.concepto, cantidad, g.id, HOY);
     const n = manuales.length;
     const tal = `GEN-${g.cdt.replace("CDT-", "")}-${4200 + n}`;
-    /* La venta sin contrato también genera su boleta: es una salida física de GLP del
-       CDT y debe dejar el mismo rastro que un despacho de ruta. Sin ella, el inventario
-       se movía por una factura huérfana y el control documental no cuadraba. */
     seq.current.bop += 1;
     const bopId = `BOP-${String(seq.current.bop).padStart(4, "0")}`;
     const factura = {
@@ -516,61 +361,59 @@ export default function App() {
       canal: d.canal || g.canal, codigoGenerico: g.id,
       compradorNombre: d.compradorNombre || "No identificado",
       compradorDoc: d.compradorDoc || "—",
-      pago: { banco: d.banco || "BDV", referencia: d.referencia || `77${6000 + n * 11}`, estado: "VERIFICADO", auto: false },
+      pago: esBanco
+        ? { banco: d.banco, referencia: d.referencia || `77${6000 + n * 11}`, estado: "VERIFICADO", auto: false, canal: d.canal || g.canal }
+        : { banco: "EFECTIVO", referencia: null, estado: "VERIFICADO", auto: false, canal: "EFECTIVO", efectivo: true },
+      jornadaPlantaMovil: d.jornada || null,
     };
     setManuales((p) => [factura, ...p]);
     return { ok: true, factura };
   }
 
-  /** Registro del operador de planta: entradas y salidas de cilindros y gandolas. */
+  /** Registro del operador de planta: gandolas y bombonas de la jornada. */
   function crearMovimientoPlanta(d) {
+    const b = bloqueo(); if (b) return b;
     seq.current.mp += 1;
     const t = tipoMovPlanta(d.tipo);
-    const kg = t.medio === "GANDOLA" ? Number(d.kg || 0) : Number(d.kg || 0);
+    const kg = t.medio === "GANDOLA" || t.id === "LLENADO" ? Number(d.kg || 0) : 0;
     const mov = {
       id: `MP-${seq.current.mp}`, fecha: HOY, hora: d.hora || "—", tipo: d.tipo, cdt: d.cdt,
       documento: d.documento || `CMP-${seq.current.mp}`, contraparte: d.contraparte || "—",
-      cilindros: d.cilindros || null, kg, litros: kgALitros(kg),
+      cilindros: d.cilindros || null, kg, litros: kgALitros(kg), ad: d.ad || null,
       vehiculo: d.vehiculo || "—", operador: d.operador || "—", cedula: d.cedula || "—",
       nota: d.nota || "", estado: d.estado || "CONFIRMADA",
     };
     setMovPlanta((p) => [mov, ...p]);
-    return mov;
+    return { ok: true, ...mov };
   }
 
   /**
-   * Edición del padrón con bitácora. Los campos de identidad (código, cédula, RIF)
+   * Edición del padrón con bitácora. Los campos de identidad (código, cédula, contrato)
    * no se editan libremente: se corrigen por expediente, fuera de esta vía.
    */
   function actualizarUsuario(id, cambios, autor = "Comercialización") {
     const u = USUARIOS.find((x) => x.id === id);
     if (!u) return { ok: false, error: "Usuario no encontrado." };
     const protegidos = ["id", "doc", "contrato"];
-    const bitacora = [];
+    const bitacoraCambios = [];
     Object.entries(cambios).forEach(([k, v]) => {
       if (protegidos.includes(k)) return;
-      if (u[k] === v) return;
-      bitacora.push({ campo: k, antes: u[k] ?? null, despues: v ?? null, fecha: HOY, autor });
+      const antes = u[k] instanceof Date ? u[k].getTime() : u[k] ?? null;
+      const despues = v instanceof Date ? v.getTime() : v === "" ? null : v ?? null;
+      if (antes === despues || (antes == null && despues == null)) return;
+      bitacoraCambios.push({ campo: k, antes: u[k] ?? null, despues: v ?? null, fecha: HOY, autor });
       u[k] = v;
     });
-    if (bitacora.length) {
-      u.bitacora = [...bitacora, ...(u.bitacora || [])];
+    if (bitacoraCambios.length) {
+      u.bitacora = [...bitacoraCambios, ...(u.bitacora || [])];
       setPadronV((n) => n + 1);
     }
-    return { ok: true, cambios: bitacora };
+    return { ok: true, cambios: bitacoraCambios };
   }
 
   /**
-   * ALTA DE USUARIO · el paso que faltaba.
-   *
-   * La Gerencia lo pidió en dos tiempos y así está construido: primero se registra la
-   * información base —quién es, dónde vive, a qué comuna pertenece— y el usuario nace
-   * CONTADO y REGULAR, que es lo ordinario. La condición de pago y la condición
-   * tarifaria se activan **después**, desde su ficha, porque exonerar o dar crédito no
-   * es un dato de registro sino una decisión que necesita respaldo.
-   *
-   * El código y el contrato los asigna el sistema: si los teclea una persona, tarde o
-   * temprano hay dos usuarios con el mismo número.
+   * ALTA DE USUARIO. Primero la información base; el usuario nace CONTADO y REGULAR. La
+   * condición de pago y la tarifaria se activan después, desde su ficha, con su aval.
    */
   function crearUsuario(d, autor = "Comercialización") {
     const doc = String(d.doc || "").trim().toUpperCase();
@@ -584,7 +427,6 @@ export default function App() {
       return { ok: false, error: `Ya existe un usuario registrado con el documento ${doc}.` };
     }
     if (!d.comuna) return { ok: false, error: "Debe asociarlo a una comuna: es el punto por donde recibe." };
-
     seq.current.usuario = (seq.current.usuario || 4343000) + 1;
     const id = String(seq.current.usuario);
     const comuna = COMUNAS.find((c) => c.id === d.comuna) || COMUNAS[0];
@@ -597,10 +439,8 @@ export default function App() {
       uso: d.uso || "RESIDENCIAL",
       contrato: `${1180000 + (seq.current.usuario % 100000)}`,
       tipoContrato: d.tipoContrato || "Bombona Domicilio",
-      // Nace en lo ordinario. Lo especial se activa después, con su aval.
       condicionVenta: "CONTADO", condicionTarifa: "REGULAR",
-      desde: HOY, portal: false,
-      altaPor: autor, altaEn: HOY,
+      desde: HOY, portal: false, altaPor: autor, altaEn: HOY,
       bitacora: [{ campo: "alta", antes: null, despues: `Registrado por ${autor}`, fecha: HOY, autor }],
     };
     USUARIOS.push(nuevo);
@@ -609,33 +449,18 @@ export default function App() {
   }
 
   /**
-   * CULMINAR UN SERVICIO ATENDIDO EN O.A.U.
-   *
-   * Una visita técnica, un cambio de válvula o una reparación no salen en una gandola:
-   * no entran a un AD y por eso no tenían forma de cerrarse. El pedido quedaba pagado
-   * para siempre, y si el técnico hacía el trabajo el sistema solo sabía cancelarlo.
-   *
-   * Esto dispara la misma cadena contable que el cierre del AD —boleta, factura, libro
-   * de ventas— sin exigir ruta, porque aquí no hay ruta que exigir. Lo que sí exige es
-   * constancia de quién atendió y cuándo, que es el soporte del servicio prestado.
-   *
-   * Los conceptos con inventario no pasan por aquí: un cilindro se entrega despachando,
-   * no declarando que se entregó.
+   * CULMINAR UN SERVICIO ATENDIDO EN O.A.U. Dispara boleta, factura y libro de ventas sin
+   * exigir AD: un servicio no sale en una ruta. Factura a la tarifa del día en que se prestó.
    */
   function culminarServicio(sol, d = {}) {
+    const b = bloqueo(); if (b) return b;
     const actual = solicitudes.find((x) => x.id === sol.id) || sol;
     const c = cpt(actual.concepto);
-    if (c.inv) {
-      return { ok: false, error: "Este concepto mueve inventario: se cierra despachando en un AD, no desde aquí." };
-    }
+    if (c.inv) return { ok: false, error: "Este concepto mueve inventario: se cierra en el cierre de su AD, no desde aquí." };
     if (actual.estado === "CULMINADO") return { ok: false, error: "El servicio ya está culminado." };
-    if (actual.pago?.estado !== "VERIFICADO") {
-      return { ok: false, error: "Solo se culmina un servicio con el pago verificado." };
-    }
+    if (actual.estado !== "PAGADA") return { ok: false, error: "Solo se culmina un servicio pagado por completo." };
     if (!String(d.atendio || "").trim()) return { ok: false, error: "Indique quién prestó el servicio." };
-
     const td = tpd(actual.tipoDespacho);
-    // El precio que manda es el del día en que se prestó, igual que en el despacho.
     const m = montos(actual.concepto, actual.cantidad, actual.usuario, HOY);
     seq.current.bop += 1;
     const bopId = `BOP-${String(seq.current.bop).padStart(4, "0")}`;
@@ -646,14 +471,9 @@ export default function App() {
       control = `01-${actual.pedidoNro}`;
     }
     setSolicitudes((p) => p.map((s) => (s.id === actual.id ? {
-      ...s, estado: "CULMINADO", boleta: bopId, serie, control, factura: serie,
-      entrega: HOY, ...m,
-      servicio: {
-        atendio: String(d.atendio).trim(), en: HOY,
-        canal: d.canal || "O.A.U.",
-        informe: String(d.informe || "").trim() || null,
-        receptor: String(d.receptor || "").trim() || null,
-      },
+      ...s, estado: "CULMINADO", boleta: bopId, serie, control, factura: serie, entrega: HOY, ...m,
+      servicio: { atendio: String(d.atendio).trim(), en: HOY, canal: d.canal || "O.A.U.",
+        informe: String(d.informe || "").trim() || null, receptor: String(d.receptor || "").trim() || null },
       obsEntrega: d.informe || null,
     } : s)));
     return { ok: true, boleta: bopId, serie, control, total: m.total, factura: td.factura };
@@ -664,7 +484,6 @@ export default function App() {
     const u = USUARIOS.find((x) => x.id === id);
     if (!u) return { ok: false, error: "Usuario no encontrado." };
     if (!motivoId) {
-      // Volver al reloj: se borra la decisión y el estado se recalcula solo.
       const antes = u.estadoManual;
       delete u.estadoManual;
       u.bitacora = [{ campo: "estado", antes: antes ? motivoEstadoPadron(antes.motivo)?.nombre : null,
@@ -675,8 +494,7 @@ export default function App() {
     const m = motivoEstadoPadron(motivoId);
     if (!m) return { ok: false, error: "Motivo no válido." };
     u.estadoManual = { motivo: m.id, por: autor, en: HOY, nota: String(nota || "").trim() || null };
-    u.bitacora = [{ campo: "estado", antes: u.padron?.estado ?? null,
-      despues: `${m.estado} · ${m.nombre}`, fecha: HOY, autor }, ...(u.bitacora || [])];
+    u.bitacora = [{ campo: "estado", antes: u.padron?.estado ?? null, despues: `${m.estado} · ${m.nombre}`, fecha: HOY, autor }, ...(u.bitacora || [])];
     setPadronV((n) => n + 1);
     return { ok: true, estado: m.estado, motivo: m };
   }
@@ -684,9 +502,10 @@ export default function App() {
   function crearReclamo(d) {
     seq.current.rec += 1;
     const id = `REC-${String(seq.current.rec).padStart(4, "0")}`;
+    const prioridad = d.prioridad || (/fuga|olor|seguridad/i.test(`${d.asunto} ${d.detalle}`) ? "ALTA" : "MEDIA");
     setReclamos((r) => [{
       id, usuario: CLIENTE_PORTAL.id, fecha: HOY, asunto: d.asunto, tipo: d.tipo,
-      estado: "RECIBIDO", prioridad: d.prioridad || "MEDIA", detalle: d.detalle,
+      estado: "RECIBIDO", prioridad, detalle: d.detalle,
       respuesta: null, cerrado: null, atendio: null, solicitud: d.solicitud || null,
     }, ...r]);
     return id;
@@ -704,64 +523,25 @@ export default function App() {
       ? { ...r, estado: "EN_PROCESO", atendio: "M. Álvarez" } : r)));
   }
 
-  function actualizarRutaDistribucion(id, cambios) {
-    setRutasDistribucion((rs) => rs.map((r) => r.id === id ? { ...r, ...cambios } : r));
-  }
-
-  // La comuna registra la última milla: recibido por GasLara no significa retirado por el ciudadano.
-  // En el prototipo este cambio queda compartido para que el Portal del usuario lo refleje al navegar.
-  function registrarRetiroComuna(usuarioId, estado, detalle = {}) {
-    setSolicitudes((prev) => {
-      const candidatas = prev.filter((s) => s.usuario === usuarioId && s.estado === "CULMINADO");
-      if (!candidatas.length) return prev;
-      const target = [...candidatas].sort((a,b)=>(b.entrega||b.fecha||0)-(a.entrega||a.fecha||0))[0];
-      return prev.map((s) => s.id === target.id ? {
-        ...s, estadoRetiroComuna: estado, retiradoPorUsuario: estado === "RETIRADA",
-        fechaRetiroComuna: estado === "RETIRADA" ? HOY : s.fechaRetiroComuna || null,
-        observacionRetiroComuna: detalle.observacion || null,
-      } : s);
-    });
-  }
-
-  // AD personalizada: Distribución puede agrupar cualquier conjunto de pedidos SIN AD.
-  // Los pedidos se retiran de su cola/comunidad de origen y pasan a una ruta sintética compartida
-  // por Distribución, Operaciones y Comercialización.
-  function crearRutaDistribucionPersonalizada(nuevaRuta, pedidosSeleccionados = []) {
-    const porRuta = new Map();
-    pedidosSeleccionados.forEach((p) => {
-      if (!p.rutaId) return;
-      if (!porRuta.has(p.rutaId)) porRuta.set(p.rutaId, []);
-      porRuta.get(p.rutaId).push(p);
-    });
-    setRutasDistribucion((rs) => {
-      const actualizadas = rs.map((r) => {
-        const movidos = porRuta.get(r.id) || [];
-        if (!movidos.length) return r;
-        const ids = [...new Set([...(r.customAssignedPedidoIds || []), ...movidos.map((p) => p.id)])];
-        let cilindros = { ...r.cilindros };
-        // En una comunidad todavía sin planificar, los pedidos pagados formaban parte de la carga
-        // potencial. Al moverlos a una AD personalizada se descuentan de esa carga pendiente.
-        if (r.estadoRuta === "SIN_PLANIFICAR") {
-          movidos.filter((p) => p.pagado).forEach((p) => {
-            const k = Number(p.kg || 0), q = Number(p.cantidad || 1);
-            if (cilindros[k] != null) cilindros[k] = Math.max(0, Number(cilindros[k] || 0) - q);
-          });
-        }
-        return { ...r, cilindros, customAssignedPedidoIds: ids };
-      });
-      return [nuevaRuta, ...actualizadas];
-    });
-  }
-
   const compartido = {
+    // Estado
     solicitudes, manuales, reclamos, boletas, facturas, movs, existencias, compromisos, disponibles, ciclo,
-    abonos, saldos, movPlanta, padron, padronV, parqueEnvases, consignaciones, cerrarAD,
-    crearSolicitudManual, revertirResolucionPago,
-    periodoCerrado, setPeriodoCerrado, rutasDistribucion, actualizarRutaDistribucion, crearRutaDistribucionPersonalizada, registrarRetiroComuna,
-    crearSolicitud, abrirAD, validarCierre, entregar, crearManual,
+    abonos, saldos, movPlanta, padron, padronV, parqueEnvases, rutasDistribucion, periodoCerrado, cierrePeriodo,
+    // Una sola fuente de cifras y de vistas derivadas
+    cifras, pedidos, gruposPlanificar, bandeja, bitacora,
+    // Pedir y pagar
+    crearSolicitud, crearSolicitudManual, completarPago, revertirResolucionPago, registrarIncidenciaPrevia,
+    // Distribución · la jornada
+    planificarAD, salidaAD, registrarRecoleccion, registrarLlenado, cerrarAD, abonarPedido, actualizarRutaDistribucion,
+    // App del operador
+    corregirIncidencias, marcarDespachado, venderPlantaMovil, cerrarCajaPM, cajasPM,
+    crearMovimientoPlanta,
+    // Comercialización
+    crearManual, crearVentaGenerica, registrarAbono, culminarServicio, cerrarPeriodo, setPeriodoCerrado,
+    actualizarUsuario, crearUsuario, definirEstadoUsuario,
     crearReclamo, responderReclamo, tomarReclamo,
-    registrarAbono, registrarIncidenciaPrevia, culminarServicio,
-    crearVentaGenerica, crearMovimientoPlanta, actualizarUsuario, crearUsuario, definirEstadoUsuario,
+    // Compatibilidad mientras las pantallas terminan de pasarse al flujo nuevo
+    consignaciones: [],
   };
 
   return (
@@ -785,6 +565,9 @@ export default function App() {
           <button className={cara === "admin" ? "on" : ""} onClick={() => setCara("admin")}>
             <Building2 size={14} /> Módulo de comercialización
           </button>
+          <button className={cara === "operador" ? "on" : ""} onClick={() => setCara("operador")}>
+            <Smartphone size={14} /> App operadores
+          </button>
           <button className={cara === "nomina" ? "on" : ""} onClick={() => setCara("nomina")}>
             <Calculator size={14} /> Nómina
           </button>
@@ -793,24 +576,48 @@ export default function App() {
           {cara === "proyecto" ? "Resumen del proyecto · problemas, solución y accesos"
             : cara === "gestion" ? "Dashboard ejecutivo · reportes · auditoría · roles"
             : cara === "admin" ? "Viendo como operador de comercialización"
+            : cara === "operador" ? "App móvil de los operadores · despacho de AD y venta en planta móvil"
             : cara === "nomina" ? "Backoffice interno · Departamento de Nómina · trabajadores sin acceso"
-            : cara === "distribucion" ? "Backoffice logístico · planificación, AD, rutas, unidades y conductores"
+            : cara === "distribucion" ? "Backoffice logístico · planificación, jornadas por momentos, replanificación y cierre de AD"
             : `Viendo como ${CLIENTE_PORTAL.nombre.split(" ").slice(0, 2).join(" ")} · contrato ${CLIENTE_PORTAL.contrato}`}
         </div>
       </div>
       <div className="cara">
-        {cara === "proyecto" && <Proyecto onNavigate={setCara} solicitudes={solicitudes} existencias={existencias} compromisos={compromisos} disponibles={disponibles} rutasDistribucion={rutasDistribucion} />}
-        {cara === "gestion" && <CentroGestion {...compartido} />}
-        {cara === "portal" && <PortalUsuario {...compartido} />}
-        {cara === "distribucion" && <Distribucion {...compartido} />}
-        {cara === "admin" && <Comercializacion {...compartido} />}
-        {cara === "nomina" && <Nomina />}
+        <Frontera key={cara} cara={cara}>
+          {cara === "proyecto" && <Proyecto onNavigate={setCara} {...compartido} />}
+          {cara === "gestion" && <CentroGestion {...compartido} />}
+          {cara === "portal" && <PortalUsuario {...compartido} />}
+          {cara === "distribucion" && <Distribucion {...compartido} />}
+          {cara === "admin" && <Comercializacion {...compartido} />}
+          {cara === "operador" && <AppOperador {...compartido} />}
+          {cara === "nomina" && <Nomina />}
+        </Frontera>
       </div>
       {/* Va al final a propósito: los estilos de cada módulo se inyectan al montarse,
           y la capa de diseño debe quedar después para imponerse sin usar !important. */}
       <Tema />
     </>
   );
+}
+
+/* Si una pantalla falla, el aviso queda dentro de su cara: el resto de la demo sigue viva. */
+class Frontera extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error(`[${this.props.cara}]`, error, info?.componentStack); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="frontera">
+        <AlertTriangle size={22} />
+        <div>
+          <b>Esta pantalla tuvo un error y se detuvo</b>
+          <p>El resto de la demo sigue funcionando. Detalle técnico: {String(this.state.error?.message || this.state.error)}</p>
+          <button onClick={() => this.setState({ error: null })}><RotateCcw size={14} /> Volver a intentar</button>
+        </div>
+      </div>
+    );
+  }
 }
 
 function SwitcherEstilos() {
@@ -828,6 +635,12 @@ padding:6px 13px;border-radius:7px;font-family:inherit;font-size:12.5px;font-wei
 .sw-tabs button.on{background:#2E9A63;color:#fff;font-weight:600}
 .sw-hint{margin-left:auto;font-size:11.5px;color:#6E827C;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cara{min-height:calc(100vh - 46px)}
+.frontera{display:flex;gap:14px;align-items:flex-start;margin:48px auto;max-width:640px;padding:22px 24px;border-radius:14px;
+background:#FFF7ED;color:#7C2D12;box-shadow:0 0 0 1px #FED7AA;font-family:"Inter","Segoe UI",system-ui,sans-serif}
+.frontera b{display:block;font-size:15px;margin-bottom:6px}
+.frontera p{margin:0 0 12px;font-size:13px;line-height:1.5;color:#9A3412}
+.frontera button{display:inline-flex;align-items:center;gap:6px;border:none;border-radius:8px;padding:7px 12px;
+background:#C2410C;color:#fff;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
 @media(max-width:820px){
  .switcher{height:auto;padding:8px 12px;gap:10px;flex-wrap:wrap}
  .sw-marca{font-size:12.5px}

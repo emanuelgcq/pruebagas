@@ -1,220 +1,141 @@
 # Retomar el trabajo · GasLara
 
-Documento de traspaso escrito el **10 de septiembre de 2026** al cambiar de equipo.
-Resume en qué quedó el prototipo, qué se decidió y qué falta, para poder continuar sin
-releer la conversación completa.
+Documento de traspaso. Última actualización: **11 de septiembre de 2026**, al terminar la
+reforma del flujo y de la concordancia de datos. Resume en qué quedó el prototipo, qué se
+decidió y qué falta, para continuar sin releer las conversaciones.
 
-La transcripción íntegra está en `sesion-2026-09-10.jsonl.gz` (mismo directorio). Son
-5.244 mensajes; se le quitaron las 38 capturas de pantalla en base64 porque pesaban
-10 MB y no aportan al historial.
+La transcripción de la primera sesión está en `sesion-2026-09-10.jsonl.gz` (mismo directorio).
 
 ---
 
-## Cómo levantarlo
+## Cómo levantarlo y comprobarlo
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
-npm run build      # verificación rápida de que todo compila
+npm run dev          # http://localhost:5173
+npm run build        # compila (no detecta identificadores sin importar: mira también la consola)
+npm run verificar    # prueba el flujo de punta a punta y que las cifras cuadren entre pantallas
 ```
 
-Sin backend: todo el estado vive en memoria en `App.jsx` y se reinicia al recargar.
+Sin backend: todo el estado vive en memoria y se reinicia al recargar. **Correr
+`npm run verificar` después de cada cambio**: si algo del flujo o de las cifras deja de
+cuadrar, sale con error y dice qué.
 
 ---
 
 ## Qué es
 
-Prototipo de gestión de GLP para el estado Lara, Venezuela. **Seis caras** en el
-conmutador superior:
+Prototipo de gestión de GLP para el estado Lara, Venezuela. Seis caras en el conmutador:
 
 | Cara | Qué hace |
 |---|---|
-| **Proyecto** | Portada con el problema, la solución y accesos |
-| **Centro de gestión** | Dashboard ejecutivo, reportes, auditoría (solo lectura) |
-| **Portal del usuario** | El ciudadano pide y paga. Con rol de comuna, además gestiona su lote |
-| **Distribución** | Planifica, ejecuta y **cierra** las AD |
-| **Comercialización** | Factura, cobra, audita y administra el padrón |
+| **Proyecto** | Portada: el problema, la solución, el flujo y los accesos |
+| **Centro de gestión** | Tablero ejecutivo, reportes, auditoría real y roles (sólo lectura) |
+| **Portal del usuario** | El ciudadano pide, paga, completa pagos y sigue su pedido. Con rol de comuna ve a sus miembros y la jornada de su comuna |
+| **Distribución** | Planifica AD, lleva la jornada por momentos, replanifica y cierra |
+| **Comercialización** | Taquilla, padrón, libro de ventas, saldos, precios y cierre del período |
 | **Nómina** | Backoffice interno, independiente del resto |
 
-Dos CDT: **Gral. Jacinto Lara** y **Juan Guillermo Iribarren**.
+Dos CDT de Comercialización: **Gral. Jacinto Lara** y **Juan Guillermo Iribarren**.
 
-## La arquitectura, en una frase
-
-**Un solo objeto —la solicitud— atraviesa los tres módulos operativos.** No hay tres
-tablas ni tres verdades: hay una lista de 2.723 solicitudes y tres oficios mirándola
-desde ángulos distintos. La propiedad del estado está limpia; nadie escribe donde no le
-toca.
+## El flujo (decidido por el dueño del producto, 11/09/2026)
 
 ```
-Cliente        crearSolicitud · crearReclamo · registrarRetiroComuna
-Distribución   actualizarRutaDistribucion · crearRutaDistribucionPersonalizada
-               cerrarAD · crearMovimientoPlanta
-Comercializ.   facturación, padrón, abonos e incidencias previas (13 handlers)
+pide y paga (portal o taquilla · la API aplica la regla)
+  └─ si falta dinero → POR COMPLETAR (lo cubre primero el saldo, solo)
+PAGADA (dinero pendiente por despachar + GLP comprometido)
+  → AD de jornada, sólo con pagadas
+  → RECOLECCIÓN en el punto comunal (la gente lleva su bombona vacía)
+  → LLENADO en planta (las malas no se llenan)
+  → DEVOLUCIÓN al mismo punto (salen diez, vuelven diez: llenas o vacías)
+  → CIERRE DEL AD: factura al precio del día de salida, BOP, salida de inventario
+  └─ si hubo un problema → POR REPLANIFICAR → AD especial por usuario → mismo ciclo
+       └─ si vence el plazo (cierre del ciclo) sin replanificar → saldo a favor
 ```
 
-Todo se orquesta desde `App.jsx`, que expone `compartido` a las tres caras.
+- **La responsabilidad de la empresa termina en el punto.** Si el dueño retira o no su
+  bombona ya no le compete a GasLara: no hay consignación ni entrega a miembros.
+- **El saldo a favor es el último recurso** (casi siempre es error del usuario): se descuenta
+  solo en el próximo pedido y para cubrir diferencias de tarifa. No hay reembolsos.
+- **Precio actual siempre:** los precios cambian cada mes; el saldo es nominal.
+- **Tope:** una bombona por núcleo familiar (residencial) por ciclo. Pre-AD sólo decide el
+  pago; el parque de envases es un aviso, no un bloqueo.
+- **No se tocan:** tipos de gas, precios, exonerado/protegido/crédito, apoyo, programa social.
 
----
-
-## Las reglas de negocio que la Gerencia fijó
-
-Están escritas como constantes y comentarios en `src/datos.jsx`, que es la única fuente
-de verdad del dominio.
-
-**El pago lo resuelve una regla, no una persona.** `aplicarReglaPago()` decide al recibir
-el dinero: monto exacto, de más (excedente al saldo), de menos (se abona y se cancela,
-no hay entrega parcial) y referencia duplicada (se rechaza). Comercialización no aprueba
-nada: consulta la bitácora y puede revertir un caso concreto con motivo.
-
-**No hay reembolsos.** `PERMITE_REEMBOLSO = false`. Todo dinero que entra queda abonado
-al código del usuario y solo se descarga contra un despacho posterior. `TIPOS_ABONO` no
-tiene ningún movimiento que devuelva dinero.
-
-**La factura nace al cerrar el AD, no al pagar.** `cerrarAD()` es el único punto que
-asigna serie, control y factura. Y factura al precio del día del despacho, no al del
-pedido.
-
-**Cómo es la jornada.** La gente lleva su bombona vacía al punto comunal. El operador la
-recoge, se la lleva a planta, la llena y la vuelve a dejar. **Salen diez, vuelven diez.**
-El camión NO sale cargado: sale a recoger.
-
-**Las incidencias tienen dos momentos:**
-- *Antes del AD* — una sola cosa: pagó o no pagó. Eso decide quién entra.
-- *En el sitio* — quién llevó su bombona, cuáles volvieron llenas y cuáles no se pudieron
-  llenar por estar malas.
-
-**La bombona mala no se repone.** Vuelve vacía, el envase entra a taller y el dinero le
-queda abonado. Los siete motivos de no entrega abonan; ninguno deja a la persona sin gas
-y sin dinero.
-
-**Un litro de GLP pesa 0,540 kg** (mezcla 60/40, el factor comercial). La tabla
-`COMPOSICIONES_GLP` conserva 0,504 para propano 100% como opción. **Ninguna cantidad de
-GLP se muestra en una sola unidad**: kg y L van juntos, al mismo tamaño de fuente
-(`src/Unidades.jsx`).
-
-**Tope de una bombona por núcleo familiar por ciclo.** Sin envase vacío no hay canje, y
-los formatos no se sustituyen entre sí porque la tarifa es por formato.
-
----
-
-## Mapa de archivos
+## La arquitectura
 
 ```
-datos.jsx               El dominio. Reglas, constantes, semilla. 1.750 líneas
-Unidades.jsx            kg ↔ L. Un solo factor, siempre las dos unidades
-Tema.jsx                Capa de diseño global con prefijo `body`
-
-App.jsx                 Orquestador. Todo el estado y los handlers
-
-PortalUsuario.jsx       El ciudadano
-PortalRolComuna.jsx     El rol de comuna (permisología dentro del portal)
-
-Distribucion.jsx        Nav + Resumen + Pedidos + AD del día + Comunas
-DistribucionPersonas.jsx  Las personas de un AD: cuadre, lista nominal
-DistribucionEjecucion.jsx Panel del gerente: ejecutar, incidencias, cerrar
-DistribucionCierreAD.jsx  El cierre persona por persona
-DistribucionPlanta.jsx    Movimiento de planta, granel, planta móvil
-DistribucionExtra.jsx     Preparación de carga, flota, reasignar
-
-Comercializacion.jsx      Nav + panel + solicitudes + inventario + EPSDC
-ComercializacionGestion.jsx   Libro de ventas, saldos, precios, padrón
-ComercializacionCustodia.jsx  Consignación comunal
+src/datos.jsx     El dominio: reglas escritas como constantes, precios versionados, montos,
+                  generador de la semilla. Es la fuente de verdad de las reglas.
+src/flujo.js      Las transiciones (funciones puras) y las cifras que leen todas las pantallas:
+                  nuevaSolicitud · completarPago · repreciar · planificarAD · salidaAD ·
+                  recoleccionAD · llenadoAD · cerrarADPuro · abonarPedido · vencerPlazos ·
+                  cifrasSistema · pedidosDistribucion · gruposPorPlanificar ·
+                  bandejaReplanificacion · momentoCiudadano · fichaUsuario360 · bitacoraEventos
+src/semilla.js    El estado inicial, construido ejecutando el flujo con esas mismas funciones
+src/App.jsx       El estado vivo: aplica los resultados de flujo.js y reparte `compartido`
+                  (incluye `cifras`, la única fuente de números para todas las caras)
+scripts/verificar.mjs   La prueba del flujo y de la concordancia
 ```
 
----
+Estados de la solicitud: `SIN_PAGO · POR_COMPLETAR · PAGADA · EN_AD · POR_REPLANIFICAR ·
+CULMINADO · ABONADA`. Estados del AD: `SIN_PLANIFICAR · ASIGNADA · REPROGRAMADA · EN_RUTA
+(recolección) · EN_PLANTA · EN_PUNTO (devuelta, lista para cerrar) · INCIDENCIA · CERRADA`.
 
-## Qué se hizo en esta sesión
+## Lo que muestra la demo al abrir (14/08/2026)
 
-1. **Automatización de pagos** y retirada de la bandeja de conciliación
-2. **Sin reembolsos** — se eliminó el reintegro en efectivo
-3. **Huecos cerrados**: alta de usuarios, servicios culminables, estado del padrón
-   definible, resumen por tipo de cliente, venta sin contrato con boleta
-4. **Nueve caras a seis** — se eliminaron la app móvil del usuario, la del repartidor y
-   el Portal Comuna
-5. **El AD lo cierra Distribución**, no el conductor
-6. **Modelo de la jornada corregido** — el camión sale a recoger, no a repartir
-7. **Distribución de 15 entradas a 10**
-8. **Cada AD abre a su listado nominal** de personas
+- **AD 76527** (Rastrojitos Centro) se cerró ayer: 196 convocadas, 168 entregadas,
+  27 a replanificación, 1 desistió.
+- **AD 76990**, especial por usuario, sale mañana con cinco paradas: dos entregas directas
+  de comercio y tres casos replanificados.
+- **AD 76950**, la jornada de la comuna del portal (Barquisimeto Centro), está en planta con
+  tres vecinos; Pedro Luis no llevó su bombona.
+- **Ellard (portal) no tiene pedidos en curso ni saldo**: la demo empieza con su pedido de
+  agosto y lo recorre hasta la factura.
+- **Hoy:** 76883 en recolección, 76884 en planta y 76902 devuelta al punto, lista para
+  cerrar. El resto de las AD están planificadas.
+- **Por planificar:** Santa Inés, Peña 1 Las Flores y la institución.
+- **Bandeja y pagos:** 24 casos en la bandeja de replanificación y 27 pedidos por completar.
+  Hay saldo a favor en 24 usuarios.
 
-Cada bloque está documentado en el `README.md` con su fecha y su porqué.
+## Estado de la verificación (11/09/2026)
 
----
+- `npm run verificar`: 148 comprobaciones correctas. `npm run build`: compila.
+- En el navegador se recorrieron todas las caras sin errores de consola y se probaron en vivo
+  el cierre de un AD (cuadra al céntimo con el Panel), un AD completo por momentos, un AD
+  especial desde la bandeja, la taquilla con pago de menos y «Completar pago», y el rol de
+  comuna. El detalle está al final del README («Prueba en el navegador»).
+- **El tope se cuenta por la fecha del pedido.** Yolimar pagó su SOL-2471 en julio y se le
+  despacha en la jornada del 14/08; por eso en agosto todavía puede pedir. Es la regla tal
+  como está escrita; si la Gerencia quiere que un pedido sin despachar bloquee el ciclo
+  siguiente, el cambio va en `consumoDelCiclo` (datos.jsx).
+- **Distribución no ve bolívares** (regla del dueño del producto): el cierre muestra facturas
+  emitidas, no montos; el arqueo de planta móvil está en Comercialización → Ventas sin contrato.
+- **Incidencias por cliente al cerrar:** la ventana de cierre permite anotar o corregir lo que
+  pasó con cada persona (`corregirJornadaAD` en flujo.js); rehace los movimientos de planta de
+  esa AD y deja traza en la bitácora del AD y en la auditoría.
+- **App móvil de operadores** (`src/AppOperador.jsx`): despacho de AD sin cobro (clientes que pagaron y no, incidencias por persona, «Despachado»; el AD lo cierra sólo Distribución) y venta en planta móvil con cobro y cierre de caja. Funciones en flujo.js: `clientesDeAD`, `marcarDespachadoAD`, `ventaPlantaMovil`, `cajaPlantaMovil`.
+- **Libro de ventas**: tipo de despacho, condición tarifaria e IVA en cada fila.
+- **`.vite/` está versionado** en git aunque ya está en `.gitignore`: al hacer el próximo
+  commit, quitarlo con `git rm -r --cached .vite`.
 
-## Lo que queda pendiente
+## Lo que queda pendiente de definición
 
-Ordenado por peso. Los cuatro primeros salieron del análisis de los tres módulos y
-siguen abiertos.
-
-### 1 · El portal no aplica la regla de pago
-
-`crearSolicitud()` en `App.jsx` escribe el pago a mano —`estado: "VERIFICADO"`, sin
-`regla`, sin `canal`, sin `montoRecibido`— y maneja el excedente por su cuenta,
-duplicando la lógica de `MONTO_MAYOR`. No contempla transferencia corta ni referencia
-duplicada.
-
-Las otras tres vías (semilla, rutas, taquilla) sí pasan por `aplicarReglaPago`. **Una
-solicitud creada hoy desde el portal no aparece en la bitácora de Comercialización**,
-porque `bitacoraPagos()` filtra por `s.pago.regla`. Es el hueco más serio: está en la vía
-que en producción generaría el mayor volumen.
-
-### 2 · El flujo es de una sola vía
-
-El ciudadano no ve **ninguna** decisión que los otros dos módulos toman sobre su pedido:
-`motivoNoCompra`, `incidencia`, `retenidaDesde`, `abonadoBs`, `revertida`,
-`detalleRegla`, `estadoRetiroComuna` — ninguno se renderiza en `PortalUsuario.jsx`.
-
-El dinero sí vuelve (aparece en "Mi saldo" con su detalle) pero **el motivo atado a su
-pedido no vuelve nunca**.
-
-### 3 · La escalera de fases tiene un peldaño muerto y un estado invisible
-
-`FASES` es `SIN_PAGO → POR_CONCILIAR → PAGADA → EN_AD → CULMINADO`.
-
-- **`POR_CONCILIAR` ya no existe** — se retiró cuando la API pasó a resolver los pagos.
-  Ninguna solicitud lo alcanza, pero el ciudadano sigue viendo *"Verificando tu pago"*.
-- **`ABONADA` no está en la escalera.** `faseIdx("ABONADA")` devuelve `-1` y el Tracker
-  enciende con `i <= idx`, así que **no enciende ninguno**. Las 25 personas con solicitud
-  abonada ven una barra de progreso vacía sin explicación.
-- `esAbonada` está importado en el portal y no se usa.
-
-### 4 · El portal no valida cupo ni envase
-
-`crearSolicitudManual` (taquilla) comprueba `puedeSolicitar` y `validarCanje`. El portal
-no comprueba ninguno. Un ciudadano puede pedir por el portal lo que el mismo sistema le
-negaría en el mostrador.
-
-### 5 · El cierre del AD sigue en una sola mano
-
-La Gerencia lo quiere controlado por Distribución **y** Comercialización —una actualiza
-atendidos, la otra factura y abona. Hoy lo ejecuta solo Distribución. Las piezas existen
-sin usar: `entregar()` y `abrirAD()` en `App.jsx` no las llama nadie.
-
-Se dejó fuera a propósito, por decisión explícita.
-
-### 6 · Cómo reporta el conductor
-
-Al retirar la app del repartidor, el prototipo dejó de mostrar **cómo** reporta desde la
-calle. Hoy se asume que llama o usa radio y Distribución transcribe. Si va a haber un
-canal digital para ese reporte, hay que decidirlo.
-
----
-
-## Puntos que siguen esperando definición de la Gerencia
-
-- **Vencimiento del saldo a favor**: hoy no caduca. Sin política de prescripción, el
-  pasivo se acumula (hoy Bs 32.532,15 entre 49 usuarios).
-- **Cupo mensual del usuario protegido**: el prototipo usa 18 kg sin validarlo.
-- **Capacidad del vehículo**: 13 de 25 AD de la semilla exceden la capacidad del camión
-  asignado, una hasta 247%. El planificador no lo valida.
-- **Qué pasa con quien no tiene envase**: hoy queda sin servicio y con su dinero abonado.
-  Falta definir si existe una vía para que adquiera uno.
-- **Correlativo del número de control**: deriva del número de pedido y por tanto salta.
-  SENIAT espera correlativo continuo asignado por imprenta digital autorizada.
-- **Tipo de usuario por nivel en granel**: se modeló por volumen mensual contratado. Si
-  el criterio es otro —nivel del tanque o nivel tarifario— el corte se ajusta sin tocar
-  el resto del módulo.
-
----
+- **Ciclo real:** GasLara trabaja hoy cada 15 a 18 días por comunidad; el prototipo usa el
+  mes calendario para el tope y para el plazo de replanificación.
+- **Cierre del AD en dos manos** (Distribución actualiza atendidos, Comercialización factura):
+  hoy lo cierra Distribución. Alternativa propuesta: cierre automático cuando cuadra y doble
+  aprobación sólo cuando hay diferencias.
+- **Cómo reporta el conductor** desde la calle (hoy se asume que Distribución transcribe).
+- **Capacidad del vehículo:** el planificador avisa cuántos viajes hacen falta pero no bloquea.
+- **Correlativo del número de control:** deriva del número de pedido y salta. SENIAT exige
+  correlativo continuo asignado por imprenta digital autorizada.
+- **EPSDC 30 %:** ninguna fuente pública lo confirma.
+- **Cupo del usuario protegido** (18 kg) y **tipo de usuario por nivel** en granel.
+- **Vencimiento del saldo a favor:** hoy no caduca.
+- **Qué es «TIPS»** en el requerimiento de la O.A.U.
+- **Nómina**, para un abogado laboral: bono vacacional (Art. 192), días adicionales de
+  garantía (Art. 142 b) y liquidación sin anticipos ni intereses.
 
 ## Advertencias de trabajo
 
@@ -222,13 +143,12 @@ canal digital para ese reporte, hay que decidirlo.
 secuencias UTF-8 en una sesión anterior. Para editar por script, usar Node con
 `fs.writeFileSync(path, texto, "utf8")`.
 
-**Cuidado con los literales de plantilla anidados** al parchear con `node -e`: un
-backtick dentro de otro rompe el script. Escribir el parche a un archivo `.cjs` y
-ejecutarlo.
+**Cuidado con los literales de plantilla anidados** al parchear con `node -e`: un backtick
+dentro de otro rompe el script. Escribir el parche a un archivo `.cjs` y ejecutarlo.
 
 **El build pasa aunque falte un import.** `npm run build` no detecta identificadores no
-definidos en tiempo de ejecución; hay que abrir el navegador y mirar la consola.
+definidos en tiempo de ejecución: abrir las pantallas y sus modales en el navegador y mirar
+la consola. Cada cara está protegida: si una falla, muestra un aviso y no deja la demo en blanco.
 
-**Verificación en navegador**: se usó el protocolo de DevTools de Chrome con el WebSocket
-nativo de Node (no hay Playwright ni Puppeteer instalados). Lanzar Chrome con
-`--remote-debugging-port=9222 --headless=new` y conectarse a `http://localhost:9222/json`.
+**La semilla se construye con el flujo.** Para cambiar los datos de demostración, cambiar
+`src/semilla.js` (qué pasa en cada AD) y no escribir registros a mano: así siguen cuadrando.

@@ -1,83 +1,114 @@
 import React, { useMemo, useState } from "react";
-import { Search, Container, AlertTriangle, CheckCircle2, Clock3, Users } from "lucide-react";
-import { cpt, usr, bs, num, kgDeSolicitud, envasesDe, validarCanje, reglaPago } from "./datos.jsx";
-import { cilindrosFila } from "./distribucionSeed.js";
+import { Search, AlertTriangle, CheckCircle2, Clock3 } from "lucide-react";
+import { cpt, usr, num, kgDeSolicitud, reglaPago, motivoNoEntrega, estadoSolicitud } from "./datos.jsx";
+import { personasDeAD, marcaDe, tipoAD } from "./flujo.js";
 import { KgL } from "./Unidades.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    LAS PERSONAS DE UN AD
 
-   Un AD son 110 personas en promedio; la mayor lleva 306. Hasta ahora la lista nominal
-   solo aparecía en dos momentos —al planificar y al cerrar— y en el medio, que es donde
-   el AD vive casi todo el día, el camión era un número de cilindros.
+   Un AD son 110 personas en promedio; la mayor lleva 300. La lista nominal es la misma
+   gente en todas partes —la tarjeta del AD, el detalle, la hoja impresa— y sale siempre
+   de las solicitudes vivas (`personasDeAD`), no de una copia congelada al planificar.
 
-   Aquí se deriva de la gente lo que antes se leía de un campo congelado. `r.cilindros`
-   se fija cuando se planifica y no vuelve a moverse: si después la API rechaza un pago,
-   el conteo sigue contando a esa persona. Contar personas es la única forma de que el
-   número no mienta.
+   ANTES DEL AD LA ÚNICA INCIDENCIA ES EL PAGO. El camión sale vacío a recoger las
+   bombonas que la gente lleva al punto. Si alguien llevó su bombona, si se llenó o si
+   volvió vacía son hallazgos del sitio: se marcan en la recolección y en el llenado, y al
+   cerrar el AD cada persona queda con su resultado en `historialAD`.
 
-   ANTES DEL AD LA ÚNICA INCIDENCIA ES EL PAGO. El camión no sale cargado: sale a
-   recoger las bombonas que la gente lleva al punto. Si alguien llevó su bombona, si
-   volvió llena o si estaba mala son hallazgos del sitio, y se registran al cerrar.
-   Adelantarlos aquí sería inventarse un dato que todavía nadie recogió.
+   El cuadre de la jornada (convocadas, recogidas, llenadas, devueltas) es `cuadreJornada`
+   del núcleo: aquí sólo se pinta.
    ════════════════════════════════════════════════════════════════ */
-
-/**
- * El cuadre real de un AD. Devuelve lo planificado, la gente que hay detrás y —lo que
- * importa— cuántos cilindros van a salir sin quien los reciba.
- */
-export function cuadreAD(ruta, solicitudes = []) {
-  const personas = solicitudes.filter((s) => s.rutaId === ruta.id);
-  // Convocadas: las que pagaron. Es lo único que decide quién entra a la jornada.
-  const convocadas = personas.filter((s) => s.estado === "EN_AD");
-  const sinPago = personas.filter((s) => s.pago?.estado === "SIN_PAGO");
-  const rechazados = personas.filter((s) => s.pago?.estado === "RECHAZADO");
-  const cerradas = personas.filter((s) => s.estado === "ABONADA" || s.estado === "CULMINADO");
-  return {
-    personas, convocadas, sinPago, rechazados, cerradas,
-    planificado: cilindrosFila(ruta),
-    sinPagoTotal: sinPago.length + rechazados.length,
-    kg: convocadas.reduce((a, s) => a + kgDeSolicitud(s), 0),
-    total: convocadas.reduce((a, s) => a + Number(s.total || 0), 0),
-  };
-}
 
 /**
  * Por qué esta persona no entra a la jornada. Null si entra.
  *
- * Sólo mira el pago: es lo único que se sabe antes de que el camión salga. Lo del
- * envase se descubre en el punto, cuando la gente llega con su bombona o sin ella.
+ * Sólo mira el pago antes del AD: sin pago, pago rechazado o por completar. Lo del envase
+ * se descubre en el punto, cuando la gente llega con su bombona o sin ella.
+ * Distribución no ve importes: el faltante se nombra, no se cifra.
  */
 export function problemaDe(s) {
-  if (s.pago?.estado === "SIN_PAGO") return { tipo: "Sin pago", tono: "wr", detalle: "No ha reportado transferencia" };
-  if (s.pago?.estado === "RECHAZADO") {
+  if (s.estado === "SIN_PAGO" && s.pago?.estado === "RECHAZADO") {
     return { tipo: reglaPago(s.pago.regla).nombre, tono: "bad", detalle: s.pago.detalleRegla || "Pago rechazado por la regla" };
   }
-  if (s.estado === "ABONADA") return { tipo: "Cerrada con abono", tono: "wr", detalle: s.motivoNoCompra || "No recibió en la jornada" };
+  if (s.estado === "SIN_PAGO") return { tipo: "Sin pago", tono: "wr", detalle: "No ha reportado transferencia" };
+  if (s.estado === "POR_COMPLETAR") {
+    return { tipo: "Por completar", tono: "wr", detalle: s.tarifaPendiente ? "La tarifa subió: falta cubrir la diferencia" : "Transfirió de menos: falta la diferencia" };
+  }
   return null;
 }
+
+const RESULTADO = {
+  ENTREGADA: ["Devuelta llena · facturada", "ok"],
+  NO_RECOGIDA: ["No se recogió", "wr"],
+  NO_LLENADA: ["Volvió vacía", "wr"],
+  SALIO_POR_TARIFA: ["Salió por la tarifa nueva", "wr"],
+};
+
+/**
+ * Lo que pasó con esta persona en este AD, o null si nunca estuvo convocada en él.
+ * Cerrado el AD, lo dice `historialAD` y el estado actual del pedido (a replanificación,
+ * abonado o ya atendido en otra AD). Mientras la jornada corre, lo dicen las marcas.
+ */
+export function resultadoDe(ruta, s) {
+  const h = (s.historialAD || []).filter((x) => x.rutaId === ruta.id).slice(-1)[0];
+  if (h) {
+    const [texto, tono] = RESULTADO[h.resultado] || [h.resultado, ""];
+    const otraAD = s.rutaId && s.rutaId !== ruta.id && s.ad;
+    const despues = h.resultado === "ENTREGADA" ? null
+      : s.estado === "POR_REPLANIFICAR" ? "por replanificar"
+      : s.estado === "ABONADA" ? "abonada · saldo a favor"
+      : s.estado === "POR_COMPLETAR" ? "por completar el pago"
+      : s.estado === "EN_AD" && otraAD ? `replanificada en AD ${s.ad}`
+      : s.estado === "CULMINADO" && otraAD ? `entregada en AD ${s.ad}` : null;
+    return { texto: [texto, h.motivo ? motivoNoEntrega(h.motivo).nombre : null].filter(Boolean).join(" · "), despues, tono };
+  }
+  if (s.estado !== "EN_AD" || s.rutaId !== ruta.id) return null;
+  const mk = marcaDe(ruta, s.id);
+  const j = ruta.jornada || {};
+  if (mk.recogida === false) return { texto: `No se recogió · ${motivoNoEntrega(mk.motivo).nombre}`, tono: "wr" };
+  if (j.llenado) {
+    return mk.llenada === false
+      ? { texto: `Volvió vacía al punto · ${motivoNoEntrega(mk.motivo).nombre}`, tono: "wr" }
+      : { texto: "Devuelta llena al punto", tono: "ok" };
+  }
+  if (j.recoleccion) return { texto: "Recogida · en planta", tono: "ok" };
+  return { texto: "Convocada", tono: "ok" };
+}
+
+const pagoChip = (s) => (s.estado === "POR_COMPLETAR" ? ["wr", "Por completar"]
+  : s.pago?.estado === "RECHAZADO" ? ["bad", "Rechazado"]
+  : s.pago?.estado === "NO_APLICA" ? ["", "No requiere pago"]
+  : s.pago?.estado === "VERIFICADO" ? ["ok", "Verificado"] : ["wr", "Sin pago"]);
+
+// Se cuentan personas, no pedidos: una institución puede traer un pedido por formato.
+const personasEn = (filas) => new Set(filas.map((f) => f.s.usuario)).size;
 
 /**
  * La lista nominal. Se usa en la tarjeta del AD, en el detalle y donde haga falta:
  * es la misma gente, no tres listas que se desincronizan.
+ * `onVerUsuario(usuarioId)` abre la ficha 360° de la persona.
  */
-export function ListaPersonasAD({ ruta, solicitudes = [], parqueEnvases = [], compacta = false, onVerUsuario }) {
+export function ListaPersonasAD({ ruta, solicitudes = [], compacta = false, onVerUsuario }) {
   const [q, setQ] = useState("");
   const [filtro, setFiltro] = useState("TODAS");
+  const especial = tipoAD(ruta) === "ESPECIAL";
+  const filas = useMemo(() => {
+    const paradas = new Map((ruta.paradas || []).map((p) => [p.solicitudId, p]));
+    const ps = personasDeAD(ruta, solicitudes);
+    // En una AD especial la gente se recorre en el orden de las paradas.
+    const orden = especial ? [...ps].sort((a, b) => (paradas.get(a.id)?.orden ?? 999) - (paradas.get(b.id)?.orden ?? 999)) : ps;
+    return orden.map((s) => ({ s, u: usr(s.usuario), prob: problemaDe(s), res: resultadoDe(ruta, s), parada: paradas.get(s.id) }));
+  }, [ruta, solicitudes, especial]);
 
-  const personas = useMemo(() => solicitudes.filter((s) => s.rutaId === ruta.id), [solicitudes, ruta.id]);
-  const fueraDeJornada = useMemo(
-    () => personas.filter((s) => problemaDe(s)),
-    [personas]);
-
-  const lista = personas.filter((s) => {
-    const u = usr(s.usuario);
-    const okQ = !q || `${u.nombre} ${u.doc} ${s.id}`.toLowerCase().includes(q.toLowerCase());
-    if (!okQ) return false;
-    if (filtro === "DESPACHABLES") return s.estado === "EN_AD";
-    if (filtro === "PROBLEMA") return Boolean(problemaDe(s));
-    return true;
-  });
+  const grupos = {
+    TODAS: filas,
+    CONVOCADAS: filas.filter((f) => f.res),
+    NOVEDAD: filas.filter((f) => f.res?.tono === "wr"),
+    PAGO: filas.filter((f) => f.prob),
+  };
+  const lista = (grupos[filtro] || filas).filter((f) => !q || `${f.u.nombre} ${f.u.doc} ${f.s.id}`.toLowerCase().includes(q.toLowerCase()));
+  const tope = compacta ? 40 : 400;
 
   return (
     <div className="dp-personas">
@@ -86,47 +117,43 @@ export function ListaPersonasAD({ ruta, solicitudes = [], parqueEnvases = [], co
           <input value={q} onChange={(e) => setQ(e.target.value)}
             placeholder="Buscar persona, cédula o solicitud" /></div>
         <div className="dp-per-tabs">
-          {[["TODAS", "Todas", personas.length],
-            ["DESPACHABLES", "Convocadas", personas.filter((s) => s.estado === "EN_AD").length],
-            ["PROBLEMA", "Sin pago", fueraDeJornada.length]].map(([k, l, n]) => (
-              <button key={k} className={filtro === k ? "on" : ""} onClick={() => setFiltro(k)}>{l} <em>{n}</em></button>
-            ))}
+          {[["TODAS", "Todas"], ["CONVOCADAS", "Convocadas"], ["NOVEDAD", "Con novedad"], ["PAGO", "Fuera por el pago"]].map(([k, l]) => (
+            <button key={k} className={filtro === k ? "on" : ""} onClick={() => setFiltro(k)}>{l} <em>{num(personasEn(grupos[k]))}</em></button>
+          ))}
         </div>
+        {personasEn(filas) !== filas.length && <span className="dp-per-nota">{num(personasEn(filas))} personas · {num(filas.length)} pedidos</span>}
       </div>
 
       <div className="dp-per-scroll">
         <table className="dp-per-tabla">
           <thead><tr>
-            <th>#</th><th>Persona</th><th>Cédula</th><th>Producto</th>
-            <th className="r">GLP</th><th className="r">Bs</th><th>Pago</th><th>Entra a la jornada</th>
+            <th>#</th><th>Persona</th><th>Cédula</th><th>{especial ? "Dirección" : "Comunidad"}</th><th>Producto</th>
+            <th className="r">GLP</th><th>Pago</th><th>En la jornada</th>
           </tr></thead>
           <tbody>
-            {lista.slice(0, compacta ? 40 : 400).map((s, i) => {
-              const u = usr(s.usuario);
-              const c = cpt(s.concepto);
-              const prob = problemaDe(s);
+            {lista.slice(0, tope).map((f, i) => {
+              const { s, u, prob, res } = f;
+              const [tonoPago, textoPago] = pagoChip(s);
               return (
-                <tr key={s.id} className={prob ? "prob" : ""}>
-                  <td className="dp-per-n">{i + 1}</td>
+                <tr key={s.id} className={prob || res?.tono === "wr" ? "prob" : ""}>
+                  <td className="dp-per-n">{f.parada?.orden ?? i + 1}</td>
                   <td>
                     {onVerUsuario
-                      ? <button className="dp-per-link" onClick={() => onVerUsuario(u)}>{u.nombre}</button>
+                      ? <button className="dp-per-link" onClick={() => onVerUsuario(s.usuario)}>{u.nombre}</button>
                       : <b>{u.nombre}</b>}
                     <span>{s.id}</span>
                   </td>
                   <td className="dp-per-doc">{u.doc}</td>
-                  <td>{c.corto}</td>
+                  <td className="dp-per-lugar">{especial ? (f.parada?.direccion || u.dir || u.sector || "—") : (s.comunidad || ruta.comunidad || "—")}</td>
+                  <td>{s.cantidad > 1 ? `${s.cantidad} × ` : ""}{cpt(s.concepto).corto}</td>
                   <td className="r"><KgL kg={kgDeSolicitud(s)} /></td>
-                  <td className="r dp-per-bs">{bs(s.total)}</td>
-                  <td>{s.pago?.estado === "VERIFICADO"
-                    ? <span className="dp-per-chip ok"><CheckCircle2 size={11} /> Verificado</span>
-                    : s.pago?.estado === "RECHAZADO"
-                      ? <span className="dp-per-chip bad">Rechazado</span>
-                      : <span className="dp-per-chip wr"><Clock3 size={11} /> Sin pago</span>}</td>
-                  <td>{prob
-                    ? <span className={`dp-per-chip ${prob.tono}`} title={prob.detalle}>
-                        <AlertTriangle size={11} /> {prob.tipo}</span>
-                    : <span className="dp-per-chip ok">Convocada a la jornada</span>}</td>
+                  <td><span className={`dp-per-chip ${tonoPago}`}>
+                    {tonoPago === "ok" ? <CheckCircle2 size={11} /> : tonoPago === "wr" ? <Clock3 size={11} /> : null} {textoPago}</span></td>
+                  <td>{res
+                    ? <><span className={`dp-per-chip ${res.tono}`}>{res.texto}</span>{res.despues && <span>→ {res.despues}</span>}</>
+                    : prob
+                      ? <span className={`dp-per-chip ${prob.tono}`} title={prob.detalle}><AlertTriangle size={11} /> {prob.tipo} · no entra</span>
+                      : <span className="dp-per-chip" title="Pagó después de planificarse el AD: se atiende en una AD especial">{estadoSolicitud(s.estado).admin} · no convocada</span>}</td>
                 </tr>
               );
             })}
@@ -134,30 +161,39 @@ export function ListaPersonasAD({ ruta, solicitudes = [], parqueEnvases = [], co
         </table>
       </div>
       {!lista.length && <div className="dp-per-vacio">Ninguna persona coincide con el filtro.</div>}
-      {lista.length > (compacta ? 40 : 400) && (
-        <div className="dp-per-mas">Mostrando {compacta ? 40 : 400} de {num(lista.length)}. Afina la búsqueda para ver el resto.</div>
+      {lista.length > tope && (
+        <div className="dp-per-mas">Mostrando {tope} de {num(lista.length)}. Afina la búsqueda para ver el resto.</div>
       )}
     </div>
   );
 }
 
 /**
- * El cuadre en una línea, para la tarjeta del AD.
- *
- * Muestra lo planificado y lo que de verdad tiene destinatario. Cuando no coinciden,
- * lo dice: son cilindros que van a salir del CDT y volver.
+ * El cuadre en una línea, para la tarjeta del AD. Recibe `cuadreJornada(ruta, solicitudes)`:
+ * salen diez, vuelven diez. Cerrado el AD, muestra en qué terminó cada pedido.
+ * `fuera`: personas de la lista del AD que no entraron por el pago.
  */
-export function CuadreChips({ c }) {
+export function CuadreChips({ c, fuera = 0 }) {
+  if (!c) return null;
   return (
     <div className="dp-cuadre">
-      <span className="dp-cu"><b>{num(c.personas.length)}</b> en la lista</span>
-      <span className="dp-cu ok"><b>{num(c.convocadas.length)}</b> convocadas</span>
-      {c.sinPago.length > 0 && <span className="dp-cu wr"><b>{num(c.sinPago.length)}</b> sin pago</span>}
-      {c.rechazados.length > 0 && (
-        <span className="dp-cu bad" title="El pago no pasó la regla: no entran a la jornada">
-          <AlertTriangle size={11} /> <b>{num(c.rechazados.length)}</b> pago rechazado
+      <span className="dp-cu ok"><b>{num(c.convocadas)}</b> convocadas</span>
+      {c.cerrada ? <>
+        <span className="dp-cu ok"><b>{num(c.entregadas)}</b> entregadas</span>
+        {c.replanificadas > 0 && <span className="dp-cu wr"><b>{num(c.replanificadas)}</b> a replanificación</span>}
+        {c.abonadas > 0 && <span className="dp-cu"><b>{num(c.abonadas)}</b> abonadas</span>}
+      </> : <>
+        {c.hayRecoleccion && <span className="dp-cu"><b>{num(c.recogidas)}</b> recogidas</span>}
+        {c.noRecogidas > 0 && <span className="dp-cu wr"><b>{num(c.noRecogidas)}</b> no recogidas</span>}
+        {c.hayLlenado && <span className="dp-cu ok"><b>{num(c.llenadas)}</b> llenas</span>}
+        {c.noLlenadas > 0 && <span className="dp-cu wr"><b>{num(c.noLlenadas)}</b> vuelven vacías</span>}
+      </>}
+      {fuera > 0 && (
+        <span className="dp-cu bad" title="Están en la lista de la comunidad pero el pago no está completo: no entran a la jornada">
+          <AlertTriangle size={11} /> <b>{num(fuera)}</b> fuera por el pago
         </span>
       )}
+      {c.cuadra === false && <span className="dp-cu bad"><AlertTriangle size={11} /> no cuadra</span>}
     </div>
   );
 }
@@ -170,16 +206,19 @@ export function PersonasStyles() {
 .dp-per-tabs button{border:0;background:#E8EDF0;border-radius:8px;padding:7px 11px;font-size:11.5px;font-weight:600;color:#516069;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
 .dp-per-tabs button.on{background:#17623F;color:#fff}
 .dp-per-tabs em{font-style:normal;font-size:11px;font-weight:700;opacity:.72}
+.dp-per-nota{font-size:11px;color:#78868F}
 .dp-per-scroll{overflow:auto;max-height:420px;border:1px solid #E4E9EC;border-radius:10px;background:#fff}
 .dp-per-tabla{width:100%;border-collapse:collapse;font-size:12.5px}
 .dp-per-tabla th,.dp-per-tabla td{padding:9px 11px;border-bottom:1px solid #EDF1F3;text-align:left;white-space:nowrap}
 .dp-per-tabla th{position:sticky;top:0;background:#F5F7F8;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:#6D7982;font-weight:700;z-index:1}
 .dp-per-tabla th.r,.dp-per-tabla td.r{text-align:right}
 .dp-per-tabla tr.prob{background:#FDFAF4}
-.dp-per-tabla td b,.dp-per-tabla td span{display:block}
-.dp-per-tabla td span{font-size:11px;color:#8A959D;margin-top:2px;font-variant-numeric:tabular-nums}
+.dp-per-tabla td b,.dp-per-tabla td>span{display:block}
+.dp-per-tabla td>span{font-size:11px;color:#8A959D;margin-top:2px;font-variant-numeric:tabular-nums}
+.dp-per-tabla td>span.dp-per-chip{display:inline-flex;margin-top:0}
 .dp-per-n{color:#9AA5AD;font-variant-numeric:tabular-nums;font-size:11px}
-.dp-per-doc,.dp-per-bs{font-variant-numeric:tabular-nums}
+.dp-per-doc{font-variant-numeric:tabular-nums}
+.dp-per-lugar{max-width:230px;white-space:normal!important;line-height:1.35}
 .dp-per-link{border:0;background:none;padding:0;font-size:12.5px;font-weight:640;color:#17623F;cursor:pointer;text-align:left}
 .dp-per-link:hover{text-decoration:underline}
 .dp-per-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:99px;font-size:11px;font-weight:650;background:#EEF2F4;color:#516069}
@@ -188,24 +227,25 @@ export function PersonasStyles() {
 .dp-per-chip.bad{background:#FBE9E9;color:#944141}
 .dp-per-vacio{text-align:center;padding:28px;color:#78868F;font-size:12.5px}
 .dp-per-mas{font-size:11.5px;color:#78868F;padding-top:9px}
-/* La tabla de AD tiene siete columnas y ahora la de personas cuelga dentro. Si no se
-   acotan los anchos, el boton que abre la gente queda fuera de la vista — justo el que
-   hace falta. La comuna parte en varias lineas antes que empujar el resto. */
+/* La tabla de AD tiene siete columnas y la de personas cuelga dentro. Si no se acotan
+   los anchos, el boton que abre la gente queda fuera de la vista — justo el que hace
+   falta. La comuna parte en varias lineas antes que empujar el resto. */
 .dx-table td.dp-ad-comuna,.dx-table th.dp-ad-comuna{max-width:210px;white-space:normal;line-height:1.35}
 .dx-table td.dp-ad-ruta,.dx-table th.dp-ad-ruta{max-width:130px;white-space:normal}
 .dx-table td.dp-ad-veh,.dx-table th.dp-ad-veh{max-width:180px;white-space:normal;line-height:1.35}
-.dx-table td.dp-ad-carga{min-width:230px}
+.dx-table td.dp-ad-carga{min-width:230px;white-space:normal}
 .dx-ad-acc{display:flex;gap:6px;align-items:center;justify-content:flex-end;white-space:nowrap}
 .dx-fila-on>td{background:#F4F8FA}
 .dx-fila-personas>td{padding:0 10px 12px!important;background:#F4F8FA}
-/* Segmentos de AD del dia: las cuatro pantallas de AD que habia se volvieron
-   filtros de una sola. */
+/* Segmentos de AD del dia: los momentos del AD, como filtros de una sola pantalla. */
 .dx-segmentos{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px}
 .dx-segmentos button{border:0;background:#EDF1F3;border-radius:8px;padding:8px 13px;font-size:12px;font-weight:600;color:#516069;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
 .dx-segmentos button:hover{background:#E2E8EB}
 .dx-segmentos button.on{background:#17623F;color:#fff}
 .dx-segmentos em{font-style:normal;font-size:11px;font-weight:700;opacity:.72}
 .dx-vacio-seg{text-align:center;padding:40px;color:#78868F;font-size:13px}
+.dx-table tr.dx-fuera td{background:#FAFBFC;color:#7A8790}
+.dx-table tr.dx-fuera td b{color:#5E6B74}
 .dp-cuadre{display:flex;gap:6px;flex-wrap:wrap;margin-top:5px}
 .dp-cu{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#6B7B85;background:#EEF2F4;border-radius:99px;padding:3px 9px;white-space:nowrap}
 .dp-cu b{font-weight:700;color:#252F36;font-variant-numeric:tabular-nums}

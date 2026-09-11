@@ -72,7 +72,7 @@ body{
    Aquí se devuelve el tracking normal a todo texto pequeño anidado dentro de una
    cifra grande, sin tocar la cifra en sí. */
 body .kpi-v em,body .kpi-v small,body .kpi-v span,
-body .hero-num em,body .mv-big em,body .cg2-estado b em,
+body .hero-num em,body .cg2-estado b em,
 body .dx-fuente>b em,body .split-v em,body .split-v small,
 body .oj-resumen b em,body .dp-k b em,body .cg2-k b em{
   letter-spacing:normal;
@@ -82,7 +82,7 @@ body small,body .u-doc,body .card-note{letter-spacing:0}
 
 /* Las cifras no deben cambiar de ancho al cambiar de valor */
 body .tbl,body .dx-table,body .nm-table,body .u360-table,body .cx-table table,
-body .de-table table,body .cp2-scroll table,body .cg-perms table,
+body .de-table table,body .cg-perms table,
 body .mono,body .dp-num,body .dx-kpi>b,body .cg2-k b,body .dp-k b{
   font-variant-numeric:tabular-nums;
 }
@@ -103,14 +103,14 @@ body .sw-tabs button.on{background:var(--br500);color:#fff;font-weight:600;box-s
 body .sw-hint{font-size:12px;color:#7C8F89}
 
 /* ══════════ 2 · BARRAS LATERALES ══════════ */
-body .gl,body .dx,body .nm-shell,body .cg,body .cp2{grid-template-columns:264px 1fr}
-body .gl .side,body .dx-side,body .nm-side,body .cg>aside,body .cp2>aside{
+body .gl,body .dx,body .nm-shell,body .cg{grid-template-columns:264px 1fr}
+body .gl .side,body .dx-side,body .nm-side,body .cg>aside{
   padding:var(--s5) var(--s3);gap:var(--s4);
 }
 /* La navegación es lo único que puede desbordarse: se le da su propio scroll
    discreto para que el logo y el pie queden siempre fijos a la vista. */
 body .gl .side nav,body .dx-side nav,body .nm-side nav,
-body .cg>aside nav,body .cp2>aside nav{
+body .cg>aside nav{
   flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
   scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent;padding-right:2px;
 }
@@ -121,7 +121,7 @@ body .gl .side nav::-webkit-scrollbar-thumb,body .dx-side nav::-webkit-scrollbar
 body .gl .side nav::-webkit-scrollbar-track,body .dx-side nav::-webkit-scrollbar-track{background:transparent}
 
 body .navbtn,body .dx-side nav button,body .nm-side nav button,
-body .cg>aside nav button,body .cp2>aside nav button{
+body .cg>aside nav button{
   padding:8px var(--s3);font-size:12.5px;font-weight:500;border-radius:var(--r-sm);
   gap:10px;line-height:1.3;letter-spacing:-.005em;min-height:34px;
   transition:background .15s var(--ease),color .15s var(--ease);
@@ -132,9 +132,9 @@ body .side-foot,body .dx-rule,body .nm-side-foot,body .cg-note{flex:0 0 auto}
 body .brand-sub{font-size:10.5px;letter-spacing:.06em;line-height:1.4;white-space:nowrap}
 body .brand-img{width:138px}
 body .navbtn:hover,body .dx-side nav button:hover,body .nm-side nav button:hover,
-body .cg>aside nav button:hover,body .cp2>aside nav button:hover{background:rgba(255,255,255,.06)}
+body .cg>aside nav button:hover{background:rgba(255,255,255,.06)}
 body .navbtn.on,body .dx-side nav button.on,body .nm-side nav button.on,
-body .cg>aside nav button.on,body .cp2>aside nav button.on{font-weight:600}
+body .cg>aside nav button.on{font-weight:600}
 body .navbadge,body .dx-side nav em,body .nm-side nav em{
   font-size:11px;font-weight:700;padding:2px 7px;border-radius:var(--r-full);min-width:20px;text-align:center;
 }
@@ -150,7 +150,7 @@ body .navgrupo-h{
 }
 
 /* ══════════ 3 · CABECERA DE PÁGINA ══════════ */
-body .gl .top,body .dx-head,body .nm-header,body .cg>main>header,body .cp2>main>header{
+body .gl .top,body .dx-head,body .nm-header,body .cg>main>header{
   padding-bottom:var(--s4);margin-bottom:var(--s5);border-bottom:1px solid var(--n150);
 }
 body .gl .top h1,body .dx-head h1,body .nm-header h1,body .cg>main>header h1{
@@ -161,7 +161,7 @@ body .gl .body,body .dx-main,body .nm-main,body .cg>main{padding-bottom:var(--s7
 
 /* ══════════ 4 · SUPERFICIES ══════════ */
 body .card,body .dx-card,body .nm-card,body .cx-card,body .de-card,
-body .cg-card,body .cp2-card,body .cg2-hero,body .dp-hero{
+body .cg-card,body .cg2-hero,body .dp-hero{
   border:0;box-shadow:var(--ring),var(--sh-sm);border-radius:var(--r-lg);
   background:var(--n0);padding:var(--s5);
 }
@@ -177,34 +177,34 @@ body .card-note,body .dx-card-head p,body .de-title p,body .cg-title p{
 }
 
 /* ══════════ 5 · MÉTRICAS ══════════ */
-body .kpis,body .dx-kpis,body .cx-kpis,body .de-kpis,body .cg-kpis,body .cp2-kpis,
+body .kpis,body .dx-kpis,body .cx-kpis,body .de-kpis,body .cg-kpis,
 body .nm-cards,body .cg2-kpis,body .dp-kpis{gap:var(--s3)}
 body .kpi,body .dx-kpi,body .cx-k,body .de-kpis>div,body .cg-kpis>div,
-body .cp2-kpis>div,body .nm-metric,body .cg2-k,body .dp-k{
+body .nm-metric,body .cg2-k,body .dp-k{
   border:0;box-shadow:var(--ring),var(--sh-sm);border-radius:var(--r-md);
   padding:var(--s4);background:var(--n0);
 }
 body .kpi-l,body .dx-kpi>span,body .cx-k span,body .de-kpis span,
-body .cg-kpis span,body .cp2-kpis span,body .cg2-k span,body .dp-k span{
+body .cg-kpis span,body .cg2-k span,body .dp-k span{
   font-size:12px;color:var(--n500);font-weight:500;letter-spacing:0;line-height:1.4;
 }
 body .kpi-v,body .dx-kpi>b,body .cx-k b,body .de-kpis b,body .cg-kpis b,
-body .cp2-kpis b,body .cg2-k b,body .dp-k b{
+body .cg2-k b,body .dp-k b{
   font-size:27px;font-weight:640;letter-spacing:-.025em;line-height:1.15;margin:var(--s2) 0 var(--s1);
 }
 /* Un KPI que lleva las dos unidades tiene el doble de cifras: a 27 px se sale de la
    tarjeta. Baja de tamaño solo cuando el valor es un par kg·L, y puede partir en dos
    líneas antes que desbordar. */
-body .cp2-kpis b:has(.kgl),body .cg2-k b:has(.kgl),body .dp-k b:has(.kgl),
+body .cg-kpis b:has(.kgl),body .cg2-k b:has(.kgl),body .dp-k b:has(.kgl),
 body .dx-kpi>b:has(.kgl),body .kpi b:has(.kgl){
   font-size:19px;letter-spacing:-.01em;
 }
-body .dp-k b .kgl,body .cg2-k b .kgl,body .dx-kpi>b .kgl,body .kpi b .kgl{
+body .dp-k b .kgl,body .cg2-k b .kgl,body .dx-kpi>b .kgl,body .kpi b .kgl,body .cg-kpis b .kgl{
   flex-wrap:wrap;white-space:normal;
 }
-body .dp-k,body .cg2-k,body .dx-kpi{min-width:0}
+body .dp-k,body .cg2-k,body .dx-kpi,body .cg-kpis>div{min-width:0}
 body .kpi-p,body .dx-kpi>small,body .cx-k small,body .de-kpis small,
-body .cg-kpis small,body .cp2-kpis small,body .cg2-k small,body .dp-k small{
+body .cg-kpis small,body .cg2-k small,body .dp-k small{
   font-size:12px;color:var(--n500);line-height:1.45;
 }
 body .split-box{border-radius:var(--r-md);padding:var(--s4)}
@@ -216,7 +216,7 @@ body .split-p{font-size:12px;color:var(--n500);line-height:1.45;margin-top:var(-
 /* Las tablas anchas se extienden hasta el borde de la tarjeta en vez de cortarse
    dentro del relleno: se gana el ancho de dos columnas antes de tener que desplazar. */
 body .scroll,body .dx-table-wrap,body .cx-table,body .de-table,
-body .u360-table-wrap,body .cp2-scroll,body .cg-perms{
+body .u360-table-wrap,body .cg-perms{
   border:0;box-shadow:var(--ring);border-radius:var(--r-md);overflow:auto;background:var(--n0);
   scrollbar-width:thin;scrollbar-color:var(--n300) transparent;
 }
@@ -231,18 +231,18 @@ body .scroll::-webkit-scrollbar-thumb,body .dx-table-wrap::-webkit-scrollbar-thu
 }
 body .scroll::-webkit-scrollbar-track{background:transparent}
 body .tbl,body .dx-table,body .nm-table,body .cx-table table,
-body .de-table table,body .cp2-scroll table,body .u360-table{
+body .de-table table,body .u360-table{
   font-size:13px;border-collapse:separate;border-spacing:0;width:100%;
 }
 body .tbl th,body .dx-table th,body .nm-table th,body .cx-table th,
-body .de-table th,body .cp2-scroll th,body .u360-table th{
+body .de-table th,body .u360-table th{
   padding:12px var(--s4);font-size:11px;font-weight:650;letter-spacing:.04em;
   text-transform:uppercase;color:var(--n500);background:var(--n50);
   border-bottom:1px solid var(--n150);white-space:nowrap;line-height:1.4;
   position:sticky;top:0;z-index:2;
 }
 body .tbl td,body .dx-table td,body .nm-table td,body .cx-table td,
-body .de-table td,body .cp2-scroll td,body .u360-table td{
+body .de-table td,body .u360-table td{
   padding:14px var(--s4);border-bottom:1px solid var(--n100);border-top:0;
   line-height:1.45;color:var(--n800);vertical-align:middle;
 }
@@ -275,7 +275,7 @@ body .cg2-libro th:nth-child(3),body .cg2-libro td:nth-child(3){min-width:120px;
 
 /* ══════════ 7 · CONTROLES ══════════ */
 body .btn,body .dx-primary,body .dx-secondary,body .cx-primary,body .cx-secondary,
-body .nm-primary,body .nm-secondary,body .de-actions button,body .cp2-primary{
+body .nm-primary,body .nm-secondary,body .de-actions button{
   border-radius:var(--r-sm);font-size:13px;font-weight:550;padding:9px 14px;
   letter-spacing:-.005em;transition:all .15s var(--ease);border:0;box-shadow:var(--ring);
   background:var(--n0);color:var(--n700);display:inline-flex;align-items:center;gap:7px;cursor:pointer;
@@ -283,7 +283,7 @@ body .nm-primary,body .nm-secondary,body .de-actions button,body .cp2-primary{
 body .btn:hover,body .dx-secondary:hover,body .cx-secondary:hover{
   background:var(--n50);box-shadow:var(--ring-str);color:var(--n900);
 }
-body .btn.primary,body .dx-primary,body .cx-primary,body .nm-primary,body .cp2-primary{
+body .btn.primary,body .dx-primary,body .cx-primary,body .nm-primary{
   background:var(--br700);color:#fff;box-shadow:0 1px 2px rgba(23,98,63,.3);
 }
 body .btn.primary:hover,body .dx-primary:hover,body .cx-primary:hover,body .nm-primary:hover{
@@ -294,7 +294,7 @@ body .btn:disabled,body .dx-primary:disabled,body .cx-primary:disabled{opacity:.
 body .btn:focus-visible,body .dx-primary:focus-visible,body input:focus-visible,body select:focus-visible{
   outline:2px solid var(--br500);outline-offset:2px;
 }
-body .search,body .dx-search,body .cx-search,body .nm-search,body .cp2-search,body .cg-search,body .cg2 .search{
+body .search,body .dx-search,body .cx-search,body .nm-search,body .cg-search,body .cg2 .search{
   border:0;box-shadow:var(--ring);border-radius:var(--r-sm);padding:8px 12px;
   background:var(--n0);min-width:270px;transition:box-shadow .15s var(--ease);
 }
@@ -317,13 +317,16 @@ body .dp-modal input,body .dp-modal select,body .dp-modal textarea,body .cg2-fil
 body .toolbar,body .cx-toolbar,body .dp-toolbar{gap:var(--s2);flex-wrap:wrap}
 
 /* ══════════ 8 · ETIQUETAS DE ESTADO ══════════ */
-body .chip,body .tag,body .dx-tag,body .cx-status,body .nm-tag,body .cp2-chip,
+body .chip,body .tag,body .dx-tag,body .cx-status,body .nm-tag,
 body .dp-tag,body .dp-estado,body .pago-ok,body .u360-status,body .cg2-var{
   font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:var(--r-full);
   letter-spacing:0;line-height:1.35;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;
 }
 body .tag.mini{font-size:10.5px;padding:3px 8px}
-body .pri{font-size:11px;font-weight:700;padding:4px 9px;border-radius:var(--r-full)}
+/* La etiqueta de prioridad de los reclamos es un span con clase "pri". Varios módulos usan la
+   misma clase para su botón principal (visor de documentos, portada, Distribución): sin el
+   "span" esta regla los encogía a píldoras de 11 px. */
+body span.pri{font-size:11px;font-weight:700;padding:4px 9px;border-radius:var(--r-full)}
 
 /* ══════════ 9 · AVISOS ══════════ */
 body .inv-regla,body .cg2-regla,body .dp-regla,body .cg2-nota,body .dp-aclara,
@@ -521,7 +524,7 @@ body .empty,body .cg2-empty,body .dp-empty,body .u360-empty{
 
 /* ══════════ 16 · IMPRESIÓN ══════════ */
 @media print{
-  body .switcher,body .gl .side,body .dx-side,body .nm-side,body .cg>aside,body .cp2>aside,
+  body .switcher,body .gl .side,body .dx-side,body .nm-side,body .cg>aside,
   body .toolbar,body .dx-toolbar,body .search,body .btn,body .dx-primary,body .dx-secondary{display:none!important}
   body .card,body .dx-card{box-shadow:none;border:1px solid #ccc;break-inside:avoid}
   body{background:#fff}
@@ -529,7 +532,17 @@ body .empty,body .cg2-empty,body .dp-empty,body .u360-empty{
 
 /* ══════════ 17 · RESPONSIVO ══════════ */
 @media(max-width:1200px){
-  body .gl,body .dx,body .nm-shell,body .cg,body .cp2{grid-template-columns:232px 1fr}
+  body .gl,body .dx,body .nm-shell,body .cg{grid-template-columns:232px 1fr}
+}
+/* Cada módulo esconde o encoge su barra en su propio punto de quiebre, pero la regla de arriba
+   lleva "body" y seguía mandando: la barra desaparecía y su columna de 232 px quedaba
+   reservada, con todo el contenido metido en ella. Aquí se devuelve cada punto de quiebre. */
+@media(max-width:1000px){
+  body .cg{grid-template-columns:1fr}
+  body .nm-shell{grid-template-columns:74px 1fr}
+}
+@media(max-width:800px){
+  body .dx{grid-template-columns:1fr}
 }
 @media(max-width:900px){
   body .switcher{height:auto;padding:var(--s2) var(--s3)}

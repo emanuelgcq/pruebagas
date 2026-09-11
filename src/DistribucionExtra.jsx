@@ -1,57 +1,214 @@
 import React, { useMemo, useState } from "react";
-import { CalendarDays, Clock3, Package2, Truck, CheckCircle2, AlertTriangle, CarFront, UserRound, Fuel, Route, RefreshCw, X, Search, Users, Building2 } from "lucide-react";
-import { UNIDADES_DISTRIBUCION, OPERADORES_DISTRIBUCION, AYUDANTES_DISTRIBUCION, unidadDistribucion, operadorDistribucion, ayudanteDistribucion, disponibilidadUnidad, cilindrosFila, kgFila, operadoresParaUnidad, pedidosDeRutas } from "./distribucionSeed.js";
-import { num } from "./datos.jsx";
-
-const label={SIN_PLANIFICAR:"Sin planificar",ASIGNADA:"Asignada",PREPARANDO:"Preparando carga",LISTA_SALIDA:"Lista para salida",EN_RUTA:"En ruta",PARCIAL:"Entrega parcial",ENTREGADA:"Entregada",CERRADA:"Cerrada",INCIDENCIA:"Incidencia",REPROGRAMADA:"Reprogramada",CANCELADA:"Cancelada"};
+import { Truck, CheckCircle2, AlertTriangle, CarFront, UserRound, Users, X } from "lucide-react";
+import {
+  UNIDADES_DISTRIBUCION, OPERADORES_DISTRIBUCION, AYUDANTES_DISTRIBUCION, unidadDistribucion, operadorDistribucion,
+  disponibilidadUnidad, operadoresParaUnidad,
+} from "./distribucionSeed.js";
+import { HOY, num, fecha } from "./datos.jsx";
+import { adActiva, adEnJornada, estadoAD, cuadreJornada } from "./flujo.js";
 
 /* AgendaDistribucion se retiro el 01/09/2026.
    Repartia las AD en nueve franjas horarias calculadas con el indice de la ruta
    modulo nueve: la hora no salia de ningun dato. La hora real vive en `horaSalida`
-   —se llena al marcar salida— y se ve en la columna «Ruta y salida» de AD del dia. */
+   —se llena al marcar salida— y se ve en la columna «Jornada y salida» de AD del dia. */
 
+/* PreparacionCarga se retiro con el flujo por momentos: el camión sale VACÍO a recoger las
+   bombonas que la gente lleva al punto, así que no hay carga que cuadrar antes de salir.
+   Lo que se recoge, se llena y se devuelve se registra en Ejecución y cierre. */
 
-export function PreparacionCarga({rutas=[],actualizar=()=>{},aviso=()=>{}}){
- const disponibles=rutas.filter(r=>r.estadoRuta!=="SIN_PLANIFICAR"&&r.ad);
- const [id,setId]=useState(disponibles[0]?.id||""); const ruta=disponibles.find(r=>r.id===id)||disponibles[0];
- const inicial=ruta?.cargaReal||ruta?.cilindros||{}; const [carga,setCarga]=useState(inicial);
- React.useEffect(()=>setCarga(ruta?.cargaReal||ruta?.cilindros||{}),[ruta?.id]);
- if(!ruta)return <div className="de-page"><DEStyles/><section className="de-card">No hay AD disponibles.</section></div>;
- const plan=cilindrosFila(ruta),real=[10,18,27,43].reduce((a,k)=>a+Number(carga[k]||0),0),dif=real-plan,kg=[10,18,27,43].reduce((a,k)=>a+Number(carga[k]||0)*k,0);
- const cap=unidadDistribucion(ruta.unidad).capacidad||1,util=Math.round(kg/cap*100);
- const faltantes=Math.max(0,plan-real); const afectados=faltantes?pedidosDeRutas([ruta]).filter(p=>p.pagado).slice(-faltantes):[];
- function save(){actualizar(ruta.id,{cargaReal:carga,estadoRuta:real===plan?"LISTA_SALIDA":"PREPARANDO",cargaConfirmada:real===plan,bitacoraCambio:"Carga física confirmada · 14/08/2026 07:18"});aviso(real===plan?"Carga confirmada · AD lista para salida":"Diferencia registrada · debe resolverse antes de liberar")}
- return <div className="de-page"><DEStyles/><section className="de-card"><div className="de-title"><div><h2>Preparación y carga del vehículo</h2><p>Planificado y cargado físicamente se muestran por separado antes de liberar la AD.</p></div><select className="de-select" value={ruta.id} onChange={e=>setId(e.target.value)}>{disponibles.map(r=><option key={r.id} value={r.id}>AD {r.ad} · {r.comunidad}</option>)}</select></div><div className="de-routehead"><div><span>AD</span><b>{ruta.ad}</b></div><div><span>Comunidad</span><b>{ruta.comunidad}</b></div><div><span>Placa</span><b>{unidadDistribucion(ruta.unidad).placa}</b></div><div><span>Operador</span><b>{ruta.conductor||operadorDistribucion(unidadDistribucion(ruta.unidad).operadorDefault).nombre}</b></div></div>
- <div className="de-grid2"><section className="de-sub"><h3>Carga planificada</h3>{[10,18,27,43].map(k=><div className="de-loadline" key={k}><span>Bombona {k} kg</span><b>{ruta.cilindros[k]||0}</b></div>)}<div className="de-total"><span>Total</span><b>{plan} cilindros</b></div></section><section className="de-sub"><h3>Cargado físicamente</h3>{[10,18,27,43].map(k=><label className="de-loadline editable" key={k}><span>Bombona {k} kg</span><input type="number" min="0" value={carga[k]??0} onChange={e=>setCarga({...carga,[k]:Math.max(0,Number(e.target.value))})}/></label>)}<div className={`de-total ${dif!==0?"bad":"ok"}`}><span>Diferencia</span><b>{dif>0?`+${dif}`:dif} cilindros</b></div></section></div>
- <div className="de-cap"><div><span>Capacidad de {unidadDistribucion(ruta.unidad).placa}</span><b>{num(kg)} / {num(cap)} kg · {util}%</b></div><i><em style={{width:`${Math.min(100,util)}%`}}/></i>{util>100&&<p><AlertTriangle size={14}/>La carga supera la capacidad configurada del vehículo.</p>}</div>
- {dif!==0&&<><div className="de-warning"><AlertTriangle size={17}/><div><b>Diferencia de carga: {dif} cilindros.</b><span>La unidad no puede liberarse mientras exista diferencia entre lo planificado y lo cargado.</span></div></div>{afectados.length>0&&<div className="de-affected"><div><b>Pedidos que quedarían fuera de esta salida</b><span>Selección de demostración para resolver el faltante antes de liberar la AD.</span></div>{afectados.map(p=><article key={p.id}><div><b>{p.nombre}</b><span>{p.cedula} · {p.pedidoId}</span></div><strong>{p.kg} kg</strong><em>Pasa a pendiente / replanificación</em></article>)}</div>}</>}
- <div className="de-actions"><button onClick={()=>setCarga({...ruta.cilindros,[10]:Math.max(0,Number(ruta.cilindros[10]||0)-2)})}>Simular diferencia −2</button><button className="pri" onClick={save}><CheckCircle2 size={14}/>{dif===0?"Confirmar carga y liberar AD":"Registrar diferencia"}</button></div></section></div>
+/* ── Utilidades compartidas con Distribucion.jsx ─────────────────────────────────── */
+
+/* El input de fecha trabaja en AAAA-MM-DD; el sistema, con fechas locales. */
+const dos = (n) => String(n).padStart(2, "0");
+export const aISO = (d) => { const v = d instanceof Date ? d : new Date(d); return `${v.getFullYear()}-${dos(v.getMonth() + 1)}-${dos(v.getDate())}`; };
+export const deISO = (s) => { const [a, m, d] = String(s || "").split("-").map(Number); return a ? new Date(a, (m || 1) - 1, d || 1) : HOY; };
+
+/** Conductor por defecto de una unidad: su titular si está habilitado; si no, el primero que pueda llevarla. */
+export const conductorDe = (u) => {
+  const ops = operadoresParaUnidad(u.id);
+  return ops.some((o) => o.id === u.operadorDefault) ? u.operadorDefault : (ops[0]?.id || "");
+};
+
+/** Una unidad sirve para planificar si puede salir de verdad y tiene quién la conduzca. */
+export const unidadLista = (u) => disponibilidadUnidad(u, HOY).disponible && operadoresParaUnidad(u.id).length > 0;
+
+/**
+ * Las opciones del selector de vehículo. Las que no pueden salir se ven, pero deshabilitadas
+ * y con su motivo: el planificador sabe por qué no está y no la elige por error.
+ */
+export function OpcionesUnidad() {
+  return UNIDADES_DISTRIBUCION.filter((u) => !u.granel).map((u) => {
+    const d = disponibilidadUnidad(u, HOY);
+    const motivo = !d.disponible ? `no disponible: ${d.motivos.join(" · ")}`
+      : !operadoresParaUnidad(u.id).length ? "sin conductor habilitado" : "";
+    return <option key={u.id} value={u.placa} disabled={Boolean(motivo)}>{u.placa} · {u.etiqueta}{motivo ? ` — ${motivo}` : ""}</option>;
+  });
 }
 
-export function FlotaDistribucion({rutas=[]}){
- const [tab,setTab]=useState("vehiculos");
- return <div className="de-page"><DEStyles/><div className="de-tabs"><button className={tab==="vehiculos"?"on":""} onClick={()=>setTab("vehiculos")}><CarFront size={14}/>Vehículos</button><button className={tab==="operadores"?"on":""} onClick={()=>setTab("operadores")}><UserRound size={14}/>Operadores</button><button className={tab==="ayudantes"?"on":""} onClick={()=>setTab("ayudantes")}><Users size={14}/>Ayudantes</button></div>
- {tab==="vehiculos"&&<><div className="de-warning ok"><CheckCircle2 size={16}/><div><b>Disponible no es solo estar estacionado.</b><span>Una unidad solo puede salir con certificación GLP y póliza vigentes, mantenimiento al día y ayudante asignado.</span></div></div>
- <div className="de-fleet">{UNIDADES_DISTRIBUCION.map(u=>{const rs=rutas.filter(r=>String(unidadDistribucion(r.unidad).placa)===u.placa&&r.estadoRuta!=="SIN_PLANIFICAR"&&r.estadoRuta!=="ENTREGADA");const kg=rs.reduce((a,r)=>a+kgFila(r),0),pct=Math.min(130,Math.round(kg/(u.capacidad||1)*100));const d=disponibilidadUnidad(u);const st=!d.disponible?"No disponible":rs.some(r=>r.estadoRuta==="EN_RUTA")?"En ruta":rs.length?"Asignado":"Disponible";return <article key={u.id} className={d.disponible?"":"de-nodisp"}><div className="de-fleeticon"><Truck size={20}/></div><div className="de-fleetmain"><span>{u.tipo==="EPSDC"?"EPSDC":"Fuerza propia"}</span><h3>{u.placa}</h3><p>Código interno {u.codigoInterno} · capacidad demo {num(u.capacidad)} kg · ayudante {d.ayudante.nombre}</p><div className="de-capmini"><i><em style={{width:`${Math.min(100,pct)}%`}}/></i><span>{num(kg)} kg asignados · {pct}%</span></div>{!d.disponible&&<div className="de-motivos">{d.motivos.map(m=><span key={m}>{m}</span>)}</div>}</div><div className="de-fleetright"><b>{st}</b><span>{rs.length?rs.map(r=>`AD ${r.ad}`).join(" · "):"Sin AD activa"}</span></div></article>})}</div></>}
- {tab==="operadores"&&<div className="de-fleet">{OPERADORES_DISTRIBUCION.map(o=>{const rs=rutas.filter(r=>r.operadorId===o.id&&!["SIN_PLANIFICAR","ENTREGADA"].includes(r.estadoRuta));return <article key={o.id}><div className="de-fleeticon"><UserRound size={20}/></div><div className="de-fleetmain"><span>{o.tipo==="EPSDC"?`EPSDC ${o.epsdc||""}`:"Fuerza propia"}</span><h3>{o.nombre}</h3><p>{o.cedula}</p></div><div className="de-fleetright"><b>{rs.length?"Asignado":"Disponible"}</b><span>{rs.length?rs.map(r=>`AD ${r.ad} · ${unidadDistribucion(r.unidad).placa}`).join(" | "):"Sin jornada activa"}</span></div></article>})}</div>}
- {tab==="ayudantes"&&<div className="de-fleet">{AYUDANTES_DISTRIBUCION.map(a=>{const us=UNIDADES_DISTRIBUCION.filter(u=>u.ayudanteDefault===a.id);const rs=rutas.filter(r=>r.ayudanteId===a.id&&!["SIN_PLANIFICAR","ENTREGADA"].includes(r.estadoRuta));return <article key={a.id} className={a.activo?"":"de-nodisp"}><div className="de-fleeticon"><Users size={20}/></div><div className="de-fleetmain"><span>Ayudante de chofer</span><h3>{a.nombre}</h3><p>{a.cedula} · {us.length?`unidad habitual ${us.map(u=>u.placa).join(", ")}`:"sin unidad fija"}</p>{!a.activo&&<div className="de-motivos"><span>{a.motivo||"No disponible"}</span></div>}</div><div className="de-fleetright"><b>{!a.activo?"No disponible":rs.length?"Asignado":"Disponible"}</b><span>{rs.length?rs.map(r=>`AD ${r.ad}`).join(" · "):"Sin jornada activa"}</span></div></article>})}</div>}
- </div>
+/* ── Flota y operadores ─────────────────────────────────────────────────────────── */
+
+export function FlotaDistribucion({ rutas = [], solicitudes = [] }) {
+  const [tab, setTab] = useState("vehiculos");
+  // La ocupación sale sólo de las AD activas: una cerrada ya no compromete a nadie.
+  const activas = useMemo(() => rutas.filter(adActiva), [rutas]);
+  const kgDe = useMemo(() => new Map(activas.map((r) => [r.id, cuadreJornada(r, solicitudes).kgConvocado])), [activas, solicitudes]);
+  const listaAD = (rs, conPlaca) => rs.map((r) => `AD ${r.ad} · ${conPlaca ? r.unidad : estadoAD(r.estadoRuta).nombre}`).join(" | ");
+
+  return <div className="de-page"><DEStyles />
+    <div className="de-tabs">
+      <button className={tab === "vehiculos" ? "on" : ""} onClick={() => setTab("vehiculos")}><CarFront size={14} />Vehículos</button>
+      <button className={tab === "operadores" ? "on" : ""} onClick={() => setTab("operadores")}><UserRound size={14} />Conductores</button>
+      <button className={tab === "ayudantes" ? "on" : ""} onClick={() => setTab("ayudantes")}><Users size={14} />Ayudantes</button>
+    </div>
+
+    {tab === "vehiculos" && <>
+      <div className="de-warning ok"><CheckCircle2 size={16} /><div><b>Disponible no es sólo estar estacionado.</b>
+        <span>Una unidad sólo sale con certificación GLP y póliza vigentes, mantenimiento al día, conductor habilitado y ayudante.</span></div></div>
+      <div className="de-fleet">{UNIDADES_DISTRIBUCION.map((u) => {
+        const d = disponibilidadUnidad(u, HOY);
+        const ops = operadoresParaUnidad(u.id);
+        const rs = activas.filter((r) => unidadDistribucion(r.unidad).placa === u.placa);
+        const kg = rs.reduce((a, r) => a + (kgDe.get(r.id) || 0), 0);
+        const pct = u.capacidad ? Math.round(kg / u.capacidad * 100) : 0;
+        const enJornada = rs.find(adEnJornada);
+        const estado = !d.disponible ? "No disponible" : !ops.length ? "Sin conductor" : enJornada ? estadoAD(enJornada.estadoRuta).nombre : rs.length ? "Con AD planificada" : "Disponible";
+        return <article key={u.id} className={d.disponible && ops.length ? "" : "de-nodisp"}>
+          <div className="de-fleeticon"><Truck size={20} /></div>
+          <div className="de-fleetmain"><span>{u.etiqueta}</span><h3>{u.placa}</h3>
+            <p>Código interno {u.codigoInterno} · capacidad {num(u.capacidad)} kg por viaje · ayudante {d.ayudante.nombre}</p>
+            <p>Certificación GLP hasta {fecha(u.certificacionVence)} · póliza hasta {fecha(u.polizaVence)} · {u.mantenimiento === "TALLER" ? "en taller" : "mantenimiento al día"}</p>
+            {!u.granel && <div className="de-capmini"><i><em style={{ width: `${Math.min(100, pct)}%` }} /></i>
+              <span>{num(kg)} kg convocados en AD activas · {pct}% de un viaje</span></div>}
+            {!d.disponible && <div className="de-motivos">{d.motivos.map((m) => <span key={m}>{m}</span>)}</div>}
+          </div>
+          <div className="de-fleetright"><b>{estado}</b><span>{rs.length ? listaAD(rs) : "Sin AD activa"}</span></div>
+        </article>;
+      })}</div>
+    </>}
+
+    {tab === "operadores" && <div className="de-fleet">{OPERADORES_DISTRIBUCION.map((o) => {
+      const rs = activas.filter((r) => r.operadorId === o.id);
+      const puede = UNIDADES_DISTRIBUCION.filter((u) => operadoresParaUnidad(u.id).some((x) => x.id === o.id)).map((u) => u.placa);
+      return <article key={o.id} className={o.activo ? "" : "de-nodisp"}>
+        <div className="de-fleeticon"><UserRound size={20} /></div>
+        <div className="de-fleetmain"><span>{o.tipo === "EPSDC" ? `EPSDC ${o.epsdc || ""}` : "Fuerza propia"}</span><h3>{o.nombre}</h3>
+          <p>{o.cedula} · habilitado para {puede.join(", ") || "—"}</p></div>
+        <div className="de-fleetright"><b>{!o.activo ? "No disponible" : rs.length ? "Con AD activa" : "Disponible"}</b><span>{rs.length ? listaAD(rs, true) : "Sin AD activa"}</span></div>
+      </article>;
+    })}</div>}
+
+    {tab === "ayudantes" && <div className="de-fleet">{AYUDANTES_DISTRIBUCION.map((a) => {
+      const us = UNIDADES_DISTRIBUCION.filter((u) => u.ayudanteDefault === a.id);
+      const rs = activas.filter((r) => r.ayudanteId === a.id);
+      return <article key={a.id} className={a.activo ? "" : "de-nodisp"}>
+        <div className="de-fleeticon"><Users size={20} /></div>
+        <div className="de-fleetmain"><span>Ayudante de conductor</span><h3>{a.nombre}</h3>
+          <p>{a.cedula} · {us.length ? `unidad habitual ${us.map((u) => u.placa).join(", ")}` : "sin unidad fija"}</p>
+          {!a.activo && <div className="de-motivos"><span>{a.motivo || "No disponible"}</span></div>}</div>
+        <div className="de-fleetright"><b>{!a.activo ? "No disponible" : rs.length ? "Con AD activa" : "Disponible"}</b><span>{rs.length ? listaAD(rs, true) : "Sin AD activa"}</span></div>
+      </article>;
+    })}</div>}
+  </div>;
 }
 
 /* ReplanificarDistribucion se retiro el 01/09/2026.
-   Era la misma lista de AD con otras columnas. Replanificar es ahora una accion por
-   fila en AD del dia, que abre el mismo modal `Reasignar` de siempre. */
+   Era la misma lista de AD con otras columnas. Reasignar es ahora una accion por fila en
+   AD del dia —mientras el AD no ha salido— que abre este modal. */
 
+/**
+ * REASIGNAR UN AD PLANIFICADO · vehículo, conductor, ruta y fecha de la jornada.
+ * Sólo mientras está planificada o reprogramada: después de la salida ya hay precio fijado
+ * y gente recogida. El ayudante es el de la unidad, y cada cambio queda en la bitácora del AD.
+ */
+export function Reasignar({ r, onClose, onSave }) {
+  const actual = unidadDistribucion(r.unidad);
+  const diaActual = aISO(r.fechaJornada || r.fechaPlan || HOY);
+  const [placa, setPlaca] = useState(actual.placa);
+  const u = unidadDistribucion(placa);
+  const d = disponibilidadUnidad(u, HOY);
+  const ops = operadoresParaUnidad(u.id);
+  const [op, setOp] = useState(ops.some((x) => x.id === r.operadorId) ? r.operadorId : conductorDe(u));
+  const [ruta, setRuta] = useState(r.ruta || "");
+  const [dia, setDia] = useState(diaActual);
+  // Otra unidad puede exigir otro conductor (fuerza propia o su EPSDC): se propone el suyo.
+  const cambiarUnidad = (p) => { setPlaca(p); setOp(conductorDe(unidadDistribucion(p))); };
+  const o = operadorDistribucion(op);
+  const ay = d.ayudante;
+  const conConductor = ops.some((x) => x.id === op);
+  const cambios = [
+    u.placa !== actual.placa && `vehículo ${actual.placa} → ${u.placa}`,
+    op !== r.operadorId && `conductor ${r.conductor || "—"} → ${o.nombre}`,
+    ay.id !== r.ayudanteId && `ayudante ${r.ayudante || "—"} → ${ay.nombre}`,
+    ruta !== (r.ruta || "") && `ruta ${r.ruta || "—"} → ${ruta || "—"}`,
+    dia !== diaActual && `jornada ${fecha(r.fechaJornada || r.fechaPlan)} → ${fecha(deISO(dia))}`,
+  ].filter(Boolean);
+  const valido = d.disponible && conConductor && cambios.length > 0;
 
-export function Reasignar({r,onClose,onSave}){const [unidad,setUnidad]=useState(unidadDistribucion(r.unidad).placa);const ops=operadoresParaUnidad(unidad);const [op,setOp]=useState(r.operadorId&&ops.some(x=>x.id===r.operadorId)?r.operadorId:(ops[0]?.id||""));const [ruta,setRuta]=useState(r.ruta||"");React.useEffect(()=>{if(!ops.some(x=>x.id===op))setOp(ops[0]?.id||"")},[unidad]);const o=operadorDistribucion(op),u=unidadDistribucion(unidad);return <div className="de-modal"><div><header><div><span>REPLANIFICAR</span><h2>AD {r.ad}</h2></div><button onClick={onClose}><X size={17}/></button></header><main><label>Vehículo / placa<select value={unidad} onChange={e=>setUnidad(e.target.value)}>{UNIDADES_DISTRIBUCION.filter(x=>!x.granel).map(x=><option key={x.id} value={x.placa}>{x.placa} · {x.etiqueta}</option>)}</select></label><label>Operador<select value={op} onChange={e=>setOp(e.target.value)}>{ops.map(x=><option key={x.id} value={x.id}>{x.nombre} · {x.cedula}</option>)}</select></label><label>Ruta<input value={ruta} onChange={e=>setRuta(e.target.value)}/></label><div className="de-warning ok"><CheckCircle2 size={16}/><div><b>Nueva asignación</b><span>{u.placa} · {o.nombre} · {o.cedula}</span></div></div></main><footer><button onClick={onClose}>Cancelar</button><button className="pri" onClick={()=>onSave({unidad:u.placa,operadorId:o.id,conductor:o.nombre,conductorCedula:o.cedula,ruta,bitacoraCambio:`Reasignado a ${u.placa} · ${o.nombre} · 14/08/2026 08:42`})}>Guardar cambio</button></footer></div></div>}
+  function guardar() {
+    if (!valido) return;
+    onSave({
+      unidad: u.placa, placa: u.placa, unidadCodigoInterno: u.codigoInterno, transportistaTipo: u.tipo, epsdc: u.epsdc || null,
+      operadorId: o.id, conductor: o.nombre, conductorCedula: o.cedula,
+      ayudanteId: ay.id, ayudante: ay.nombre, ayudanteCedula: ay.cedula,
+      ruta, fechaJornada: deISO(dia),
+      // Cambiar el día es reprogramar: el AD lo muestra y el portal avisa la nueva fecha.
+      ...(dia !== diaActual ? { estadoRuta: "REPROGRAMADA" } : {}),
+      bitacoraCambios: [...(r.bitacoraCambios || []), { fecha: HOY, por: "Gerencia de Distribución", texto: `Reasignada · ${cambios.join(" · ")}` }],
+    });
+  }
+
+  return <div className="de-modal"><DEStyles /><div>
+    <header><div><span>EDITAR PLANIFICACIÓN</span><h2>AD {r.ad}</h2></div><button onClick={onClose}><X size={17} /></button></header>
+    <main>
+      <label>Vehículo · las que no pueden salir aparecen deshabilitadas<select value={placa} onChange={(e) => cambiarUnidad(e.target.value)}><OpcionesUnidad /></select></label>
+      <label>Conductor<select value={op} onChange={(e) => setOp(e.target.value)}>
+        {ops.length ? ops.map((x) => <option key={x.id} value={x.id}>{x.nombre} · {x.cedula}</option>) : <option value="">Sin conductor habilitado</option>}
+      </select></label>
+      <label>Ayudante de la unidad<input readOnly value={`${ay.nombre} · ${ay.cedula}`} /></label>
+      <label>Ruta<input value={ruta} onChange={(e) => setRuta(e.target.value)} /></label>
+      <label>Fecha de la jornada<input type="date" value={dia} min={aISO(HOY)} onChange={(e) => setDia(e.target.value)} /></label>
+      {!d.disponible
+        ? <div className="de-warning bad"><AlertTriangle size={16} /><div><b>{u.placa} no puede salir</b><span>{d.motivos.join(" · ")}</span></div></div>
+        : !conConductor
+          ? <div className="de-warning bad"><AlertTriangle size={16} /><div><b>Falta el conductor</b><span>Ningún conductor habilitado puede llevar {u.placa}.</span></div></div>
+          : <div className="de-warning ok"><CheckCircle2 size={16} /><div><b>{cambios.length ? "Queda en la bitácora del AD" : "Sin cambios"}</b>
+              <span>{cambios.length ? cambios.join(" · ") : `${u.placa} · ${o.nombre} · ${ay.nombre}`}{dia !== diaActual ? " · el AD pasa a Reprogramada" : ""}</span></div></div>}
+    </main>
+    <footer><button onClick={onClose}>Cancelar</button><button className="pri" disabled={!valido} onClick={guardar}>Guardar cambio</button></footer>
+  </div></div>;
+}
 
 /* IncidenciasDistribucion se retiro el 01/09/2026.
    Mezclaba tres incidencias inventadas en duro con las reales, y su boton «Resolver»
    solo movia un Set en memoria: al recargar volvian a estar abiertas. Registrar y
    resolver incidencias vive ahora en Ejecucion y cierre, donde escribe en la ruta. */
 
-
-function DStat({l,v,s}){return <div><span>{l}</span><b>{v}</b><small>{s}</small></div>}
-function DEStyles(){return <style>{`
-.de-page{display:flex;flex-direction:column;gap:14px}.de-card,.de-kpis>div{background:white;border:1px solid #e1e7eb;border-radius:14px}.de-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.de-kpis>div{padding:13px}.de-kpis span,.de-kpis small{display:block;font-size:9px;color:#71808a}.de-kpis b{display:block;font-size:22px;margin:4px 0}.de-card{padding:15px}.de-title{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}.de-title h2,.de-card>h2{font-size:15px;margin:0 0 4px}.de-title p{font-size:10px;color:#74818b;margin:0}.de-date,.de-select{border:1px solid #dbe3e8;background:#fff;border-radius:9px;padding:8px;font-size:10px;display:flex;gap:6px;align-items:center}.de-agenda{display:flex;flex-direction:column}.de-slot{display:grid;grid-template-columns:58px 16px 1fr;min-height:76px}.de-slot time{font-size:11px;font-weight:800;padding-top:5px}.de-line{position:relative}.de-line:before{content:"";position:absolute;left:7px;top:8px;bottom:-8px;width:1px;background:#dbe4e8}.de-line:after{content:"";position:absolute;width:9px;height:9px;border-radius:50%;background:#2e9963;left:3px;top:7px}.de-slotbody{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;padding-bottom:8px}.de-slotbody article{border:1px solid #e4e9ec;border-radius:10px;padding:9px;display:grid;grid-template-columns:1fr auto;gap:4px 10px}.de-slotbody article div{grid-row:1/4}.de-slotbody b,.de-slotbody span{display:block}.de-slotbody b{font-size:10px}.de-slotbody span,.de-slotbody small{font-size:9px;color:#74818b}.de-slotbody strong{font-size:10px}.de-slotbody i{font-style:normal;font-size:8px;background:#edf2f4;border-radius:99px;padding:3px 6px;text-align:center}.de-routehead{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}.de-routehead>div,.de-sub{background:#f7f9fa;border:1px solid #e3e8eb;border-radius:10px;padding:10px}.de-routehead span,.de-routehead b{display:block;font-size:9px}.de-routehead b{font-size:11px;margin-top:2px}.de-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.de-sub h3{margin:0 0 9px;font-size:12px}.de-loadline{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e7ecef;padding:7px 0;font-size:10px}.de-loadline input{width:80px;border:1px solid #d9e2e7;border-radius:7px;padding:5px;text-align:right}.de-total{display:flex;justify-content:space-between;padding-top:10px;font-size:11px}.de-total.ok{color:#1f724b}.de-total.bad{color:#a86217}.de-cap{margin-top:12px;background:#f7f9fa;border-radius:10px;padding:10px}.de-cap>div{display:flex;justify-content:space-between;font-size:10px}.de-cap>i,.de-capmini i{display:block;height:8px;background:#e7edef;border-radius:99px;overflow:hidden;margin:6px 0}.de-cap em,.de-capmini em{display:block;height:100%;background:#2f9863}.de-cap p{margin:6px 0 0;color:#a25135;font-size:9px;display:flex;gap:5px}.de-warning{display:flex;gap:8px;background:#fff6e7;border:1px solid #eed8b2;border-radius:9px;padding:9px;margin-top:10px;color:#82561d}.de-warning.ok{background:#edf7f1;border-color:#d6e8dc;color:#276344}.de-warning b,.de-warning span{display:block;font-size:9px}.de-affected{margin-top:9px;border:1px solid #E6D7BC;background:#FFFCF5;border-radius:10px;padding:10px}.de-affected>div>b,.de-affected>div>span{display:block;font-size:9px}.de-affected>div>span{color:#7B756B;margin-top:2px}.de-affected article{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;border-top:1px solid #EEE4D4;padding:7px 0;margin-top:6px}.de-affected article b,.de-affected article span{display:block;font-size:8.5px}.de-affected article span{color:#7D7971}.de-affected article strong{font-size:9px}.de-affected article em{font-style:normal;font-size:8px;color:#A16418;background:#FFF1D7;padding:4px 6px;border-radius:999px}.de-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:12px}.de-actions button,.de-rowactions button,.de-modal button,.de-tabs button,.de-incidents button{border:0;border-radius:8px;background:#edf2f4;padding:7px 9px;font-size:9px;font-weight:800;cursor:pointer}.de-actions .pri,.de-modal .pri{background:#17623f;color:white}.de-tabs{display:flex;gap:5px}.de-tabs button{display:flex;gap:5px;align-items:center}.de-tabs button.on{background:#17623f;color:white}.de-fleet{display:flex;flex-direction:column;gap:8px}.de-fleet article{background:white;border:1px solid #e2e8eb;border-radius:12px;padding:11px;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}.de-fleeticon{width:36px;height:36px;border-radius:10px;background:#edf5f0;color:#17623f;display:grid;place-items:center}.de-fleetmain span,.de-fleetmain p,.de-fleetright span{font-size:9px;color:#74818b;margin:0}.de-fleetmain h3{font-size:13px;margin:2px 0}.de-capmini{max-width:360px}.de-capmini i{height:5px}.de-fleetright{text-align:right}.de-fleetright b{display:block;font-size:10px}.de-nodisp{background:#FFFAF3;border-color:#EED8B2}.de-motivos{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.de-motivos span{font-size:8px;background:#FFF1D7;color:#A16418;border-radius:999px;padding:4px 7px;font-weight:700}.de-table{overflow:auto;border:1px solid #e4e9ec;border-radius:10px}.de-table table{width:100%;border-collapse:collapse;font-size:9px}.de-table th,.de-table td{padding:8px;border-bottom:1px solid #e9edef;text-align:left;white-space:nowrap}.de-table th{background:#f5f7f8;font-size:8px;text-transform:uppercase;color:#6d7982}.de-table td span{display:block;font-size:8px;color:#78858e}.de-chip{display:inline-flex!important;background:#eef2f4;padding:4px 6px;border-radius:99px;color:#53616b!important}.de-rowactions{display:flex;gap:4px}.de-log{display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid #edf0f2;font-size:9px}.de-log span{color:#74818b}.de-modal{position:fixed;inset:0;background:#0007;z-index:90;display:grid;place-items:center;padding:15px}.de-modal>div{background:white;width:min(540px,96vw);border-radius:14px;overflow:hidden}.de-modal header,.de-modal footer{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e6eaed}.de-modal footer{border-top:1px solid #e6eaed;border-bottom:0;justify-content:flex-end;gap:6px}.de-modal header span{font-size:8px;color:#2a704d}.de-modal header h2{margin:3px 0 0;font-size:16px}.de-modal main{padding:14px;display:grid;gap:9px}.de-modal label{font-size:9px;color:#6b7882}.de-modal select,.de-modal input{display:block;width:100%;box-sizing:border-box;border:1px solid #d9e1e6;border-radius:8px;padding:8px;margin-top:4px}.de-incidents{display:flex;flex-direction:column;gap:7px}.de-incidents article{display:grid;grid-template-columns:auto 1fr auto auto;gap:9px;align-items:center;border:1px solid #e4e8eb;border-radius:10px;padding:10px}.de-incidents article>svg{color:#be751d}.de-incidents article.done{opacity:.65;background:#f5f7f8}.de-incidents span,.de-incidents p{font-size:9px;color:#74818b;margin:0}.de-incidents h3{font-size:11px;margin:2px 0}.de-incidents>article>b{font-size:8px}@media(max-width:900px){.de-kpis,.de-routehead{grid-template-columns:1fr 1fr}.de-grid2,.de-slotbody{grid-template-columns:1fr}}
-`}</style>}
+function DEStyles() {
+  return <style>{`
+.de-page{display:flex;flex-direction:column;gap:14px}
+.de-warning{display:flex;gap:8px;background:#fff6e7;border:1px solid #eed8b2;border-radius:9px;padding:9px;margin-top:10px;color:#82561d}
+.de-warning.ok{background:#edf7f1;border-color:#d6e8dc;color:#276344}
+.de-warning.bad{background:#fbe9e9;border-color:#f0c9c9;color:#8e3434}
+.de-warning b,.de-warning span{display:block;font-size:9px}
+.de-modal button,.de-tabs button{border:0;border-radius:8px;background:#edf2f4;padding:7px 9px;font-size:9px;font-weight:800;cursor:pointer}
+.de-modal .pri{background:#17623f;color:white}.de-modal .pri:disabled{opacity:.45;cursor:not-allowed}
+.de-tabs{display:flex;gap:5px}.de-tabs button{display:flex;gap:5px;align-items:center}.de-tabs button.on{background:#17623f;color:white}
+.de-fleet{display:flex;flex-direction:column;gap:8px}
+.de-fleet article{background:white;border:1px solid #e2e8eb;border-radius:12px;padding:11px;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
+.de-fleeticon{width:36px;height:36px;border-radius:10px;background:#edf5f0;color:#17623f;display:grid;place-items:center}
+.de-fleetmain span,.de-fleetmain p,.de-fleetright span{font-size:9px;color:#74818b;margin:0}.de-fleetmain p+p{margin-top:2px}
+.de-fleetmain h3{font-size:13px;margin:2px 0}
+.de-capmini{max-width:360px}.de-capmini i{display:block;height:5px;background:#e7edef;border-radius:99px;overflow:hidden;margin:6px 0}.de-capmini em{display:block;height:100%;background:#2f9863}
+.de-fleetright{text-align:right;max-width:340px}.de-fleetright b{display:block;font-size:10px}
+.de-nodisp{background:#FFFAF3!important;border-color:#EED8B2!important}
+.de-motivos{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.de-motivos span{font-size:8px;background:#FFF1D7;color:#A16418;border-radius:999px;padding:4px 7px;font-weight:700}
+.de-modal{position:fixed;inset:0;background:#0007;z-index:90;display:grid;place-items:center;padding:15px}
+.de-modal>div{background:white;width:min(540px,96vw);border-radius:14px;overflow:hidden}
+.de-modal header,.de-modal footer{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e6eaed}
+.de-modal footer{border-top:1px solid #e6eaed;border-bottom:0;justify-content:flex-end;gap:6px}
+.de-modal header span{font-size:8px;color:#2a704d}.de-modal header h2{margin:3px 0 0;font-size:16px}
+.de-modal main{padding:14px;display:grid;gap:9px}.de-modal label{font-size:9px;color:#6b7882}
+.de-modal select,.de-modal input{display:block;width:100%;box-sizing:border-box;border:1px solid #d9e1e6;border-radius:8px;padding:8px;margin-top:4px}
+.de-modal input[readonly]{background:#f5f7f8;color:#4d5b66}
+`}</style>;
+}
